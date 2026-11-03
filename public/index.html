@@ -1,0 +1,512 @@
+
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#090909">
+<title>Premium Video</title>
+
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+<style>
+:root{
+  --bg:#090909;
+  --card:#171313;
+  --card2:#211515;
+  --red:#ff303d;
+  --orange:#ff8a24;
+  --text:#fff;
+  --muted:#a9a0a0;
+  --border:#342323;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:Arial,sans-serif;
+  padding-bottom:35px;
+}
+button{font-family:inherit;cursor:pointer}
+.container{max-width:600px;margin:auto;padding:15px}
+.header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin:8px 0 22px;
+}
+.brand{display:flex;align-items:center;gap:10px}
+.logo{
+  width:43px;height:43px;border-radius:13px;
+  background:linear-gradient(135deg,var(--red),var(--orange));
+  display:grid;place-items:center;font-size:23px;
+}
+.brand h2{font-size:19px;margin:0}
+.brand small{color:var(--muted);font-size:11px}
+.refer-btn{
+  border:1px solid #81302e;
+  background:#281313;color:#ff7777;
+  border-radius:10px;padding:10px 15px;
+  font-weight:bold;font-size:13px;
+}
+.section-title{
+  font-size:16px;font-weight:bold;margin:22px 0 12px;
+}
+.promo{
+  background:linear-gradient(110deg,#351414,#1c1111);
+  border:1px solid #602424;
+  border-radius:15px;padding:16px;
+  display:flex;align-items:center;
+  justify-content:space-between;gap:10px;
+}
+.promo-info{display:flex;align-items:center;gap:12px}
+.telegram-icon{
+  width:42px;height:42px;border-radius:12px;
+  background:#168bd0;display:grid;place-items:center;
+  font-size:22px;
+}
+.promo h3{font-size:14px;margin:0 0 5px}
+.promo p{font-size:11px;color:#b9a5a5;margin:0}
+.join-btn{
+  background:linear-gradient(100deg,#ff343e,#ff8126);
+  border:0;color:white;padding:10px 14px;
+  border-radius:9px;font-weight:bold;
+}
+.reward{
+  border:1px solid #754020;
+  background:linear-gradient(120deg,#30170e,#1d1210);
+  border-radius:16px;padding:17px;
+}
+.reward-top{display:flex;align-items:center;gap:12px}
+.reward-icon{
+  width:44px;height:44px;border-radius:12px;
+  background:#563016;display:grid;place-items:center;
+  font-size:24px;
+}
+.reward h3{margin:0 0 5px;font-size:15px}
+.reward p{margin:0;color:#c4a99b;font-size:12px}
+.reward-progress{
+  background:#473025;height:7px;border-radius:20px;
+  overflow:hidden;margin:15px 0 8px;
+}
+.reward-progress div{
+  height:100%;width:0%;
+  background:linear-gradient(90deg,var(--red),var(--orange));
+}
+.reward-bottom{
+  display:flex;justify-content:space-between;
+  color:#d7b8a5;font-size:11px;
+}
+.categories{
+  display:flex;gap:9px;overflow-x:auto;
+  padding:2px 0 10px;
+  scrollbar-width:none;
+}
+.categories::-webkit-scrollbar{display:none}
+.cat{
+  white-space:nowrap;padding:10px 17px;
+  border:1px solid var(--border);
+  border-radius:22px;background:#171313;
+  color:#d0c4c4;font-size:12px;
+}
+.cat.active{
+  background:linear-gradient(100deg,#ff303d,#ff8126);
+  border:0;color:white;font-weight:bold;
+}
+.video-card{
+  background:var(--card);border:1px solid var(--border);
+  border-radius:15px;overflow:hidden;margin-bottom:15px;
+}
+.thumbnail{
+  width:100%;aspect-ratio:16/9;object-fit:cover;
+  display:block;background:#241919;
+}
+.video-content{padding:13px}
+.video-title{
+  font-size:15px;font-weight:bold;
+  line-height:1.5;margin:0 0 8px;
+  overflow-wrap:anywhere;
+}
+.video-meta{
+  display:flex;justify-content:space-between;
+  align-items:center;color:var(--muted);
+  font-size:11px;margin-bottom:12px;
+}
+.tag{
+  color:#ff9b62;background:#352016;
+  padding:5px 9px;border-radius:6px;
+}
+.video-actions{display:flex;gap:9px}
+.video-actions button{
+  flex:1;padding:11px 8px;border-radius:9px;
+  border:0;font-size:12px;font-weight:bold;
+}
+.unlock-btn{
+  background:linear-gradient(100deg,#ff303d,#ff8126);
+  color:white;
+}
+.watch-btn{
+  background:#252020;color:#ddd;
+  border:1px solid #443333!important;
+}
+.pagination{
+  display:flex;justify-content:center;
+  align-items:center;gap:16px;margin:22px 0;
+}
+.page-btn{
+  background:#241616;border:1px solid #593030;
+  color:white;border-radius:8px;padding:10px 15px;
+}
+.page-btn:disabled{opacity:.3}
+.page-number{font-size:13px;color:#ddd}
+.empty{
+  text-align:center;padding:35px 10px;
+  color:var(--muted);font-size:13px;
+}
+.loading{text-align:center;padding:30px;color:#c6aaaa}
+.modal-bg{
+  position:fixed;inset:0;background:#000c;
+  display:none;align-items:center;justify-content:center;
+  padding:20px;z-index:10;
+}
+.modal{
+  width:100%;max-width:390px;
+  background:#1b1414;border:1px solid #66302d;
+  border-radius:17px;padding:22px;
+}
+.modal h3{margin:0 0 12px;font-size:18px}
+.modal p{color:#c6b6b6;font-size:13px;line-height:1.7}
+.modal-close{
+  width:100%;padding:12px;border:0;border-radius:9px;
+  background:linear-gradient(100deg,#ff303d,#ff8126);
+  color:white;font-weight:bold;margin-top:12px;
+}
+.footer{text-align:center;color:#746969;font-size:10px;margin-top:30px}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+  <header class="header">
+    <div class="brand">
+      <div class="logo">▶</div>
+      <div>
+        <h2 id="appName">Premium Video</h2>
+        <small>Watch • Enjoy • Discover</small>
+      </div>
+    </div>
+    <button class="refer-btn" onclick="openReferral()">Refer</button>
+  </header>
+
+  <div class="promo">
+    <div class="promo-info">
+      <div class="telegram-icon">✈</div>
+      <div>
+        <h3 id="promoName">Promotional Channel</h3>
+        <p>Join our official channel</p>
+      </div>
+    </div>
+    <button class="join-btn" onclick="joinChannel()">JOIN</button>
+  </div>
+
+  <div class="section-title">🎁 Daily Reward</div>
+
+  <div class="reward">
+    <div class="reward-top">
+      <div class="reward-icon">🎁</div>
+      <div>
+        <h3>50 Ads Reward</h3>
+        <p>Watch 50 ads to receive your reward</p>
+      </div>
+    </div>
+    <div class="reward-progress"><div id="rewardBar"></div></div>
+    <div class="reward-bottom">
+      <span id="rewardCount">0 / 50 Ads</span>
+      <span id="rewardPercent">0%</span>
+    </div>
+  </div>
+
+  <div class="section-title">📂 Video Categories</div>
+  <div class="categories" id="categories">
+    <button class="cat active" data-id="all">All Videos</button>
+  </div>
+
+  <div class="section-title">🎬 Latest Videos</div>
+
+  <div id="videoList">
+    <div class="loading">Loading videos...</div>
+  </div>
+
+  <div class="pagination">
+    <button class="page-btn" id="prevBtn" onclick="changePage(-1)" disabled>← Previous</button>
+    <span class="page-number" id="pageNumber">1 / 1</span>
+    <button class="page-btn" id="nextBtn" onclick="changePage(1)" disabled>Next →</button>
+  </div>
+
+  <div class="footer">© 2026 Premium Video • All Rights Reserved</div>
+</div>
+
+<div class="modal-bg" id="modalBg" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3 id="modalTitle">Premium Video</h3>
+    <p id="modalText"></p>
+    <button class="modal-close" onclick="hideModal()">Close</button>
+  </div>
+</div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+if(tg){
+  tg.ready();
+  tg.expand();
+}
+
+const API = "";
+let currentPage = 1;
+let totalPages = 1;
+let currentCategory = "all";
+let settings = {};
+let videos = [];
+
+const headers = {
+  "Content-Type":"application/json",
+  "x-telegram-init-data":tg?.initData || ""
+};
+
+function showModal(title,text){
+  document.getElementById("modalTitle").textContent=title;
+  document.getElementById("modalText").textContent=text;
+  document.getElementById("modalBg").style.display="flex";
+}
+
+function hideModal(){
+  document.getElementById("modalBg").style.display="none";
+}
+
+function closeModal(e){
+  if(e.target.id==="modalBg")hideModal();
+}
+
+async function loadSettings(){
+  try{
+    const res=await fetch(API+"/api/settings");
+    const data=await res.json();
+    if(!data.success)return;
+
+    settings=data.settings;
+    document.getElementById("appName").textContent=
+      settings.appName || "Premium Video";
+
+    const promo=settings.promotionalChannel || {};
+    document.getElementById("promoName").textContent=
+      promo.name || "Promotional Channel";
+
+    renderCategories();
+    const reward=settings.reward || {};
+    document.querySelector(".reward h3").textContent=
+      `${reward.adsRequired || 50} Ads Reward`;
+    document.querySelector(".reward p").textContent=
+      `Watch ${reward.adsRequired || 50} ads to receive your reward`;
+
+  }catch(e){
+    console.error("Settings error",e);
+  }
+}
+
+function renderCategories(){
+  const box=document.getElementById("categories");
+  const categories=(settings.categories || []).filter(c=>c.enabled!==false);
+
+  box.innerHTML="";
+
+  const all=document.createElement("button");
+  all.className="cat"+(currentCategory==="all"?" active":"");
+  all.textContent="All Videos";
+  all.onclick=()=>selectCategory("all");
+  box.appendChild(all);
+
+  categories.filter(c=>c.id!=="all").forEach(c=>{
+    const btn=document.createElement("button");
+    btn.className="cat"+(currentCategory===c.id?" active":"");
+    btn.textContent=c.name;
+    btn.onclick=()=>selectCategory(c.id);
+    box.appendChild(btn);
+  });
+}
+
+function selectCategory(id){
+  currentCategory=id;
+  currentPage=1;
+  renderCategories();
+  loadVideos();
+}
+
+async function loadVideos(){
+  const list=document.getElementById("videoList");
+  list.innerHTML='<div class="loading">Loading videos...</div>';
+
+  try{
+    const url=API+"/api/videos?page="+currentPage+
+      "&category="+encodeURIComponent(currentCategory);
+
+    const res=await fetch(url);
+    const data=await res.json();
+
+    if(!data.success)throw new Error("Unable to load videos");
+
+    videos=data.videos || [];
+    totalPages=data.pagination?.totalPages || 1;
+
+    renderVideos();
+    updatePagination(data.pagination);
+
+  }catch(e){
+    list.innerHTML='<div class="empty">ভিডিও লোড করা যায়নি। আবার চেষ্টা করো।</div>';
+    console.error(e);
+  }
+}
+
+function renderVideos(){
+  const list=document.getElementById("videoList");
+  list.innerHTML="";
+
+  if(!videos.length){
+    list.innerHTML='<div class="empty">এই ক্যাটাগরিতে এখনো কোনো ভিডিও নেই।</div>';
+    return;
+  }
+
+  videos.forEach(video=>{
+    const card=document.createElement("div");
+    card.className="video-card";
+
+    const img=document.createElement("img");
+    img.className="thumbnail";
+    img.src=video.thumbnail || "";
+    img.alt=video.title || "Video thumbnail";
+    img.loading="lazy";
+    img.onerror=()=>{img.style.display="none"};
+
+    const content=document.createElement("div");
+    content.className="video-content";
+
+    const title=document.createElement("h3");
+    title.className="video-title";
+    title.textContent=video.title || "Untitled Video";
+
+    const meta=document.createElement("div");
+    meta.className="video-meta";
+
+    const tag=document.createElement("span");
+    tag.className="tag";
+    const category=(settings.categories||[]).find(c=>c.id===video.categoryId);
+    tag.textContent=category?.name || "Video";
+
+    const ads=document.createElement("span");
+    ads.textContent=(video.adsRequired || 2)+" Ads Required";
+
+    meta.append(tag,ads);
+
+    const actions=document.createElement("div");
+    actions.className="video-actions";
+
+    const unlock=document.createElement("button");
+    unlock.className="unlock-btn";
+    unlock.textContent="🔓 Unlock Video";
+    unlock.onclick=()=>startUnlock(video.id);
+
+    const watch=document.createElement("button");
+    watch.className="watch-btn";
+    watch.textContent="▶ ভিডিও দেখুন";
+    watch.onclick=()=>openVideoBot(video.id);
+
+    actions.append(unlock,watch);
+    content.append(title,meta,actions);
+    card.append(img,content);
+    list.appendChild(card);
+  });
+}
+
+function updatePagination(p){
+  totalPages=p?.totalPages || 1;
+  document.getElementById("pageNumber").textContent=
+    `${currentPage} / ${totalPages}`;
+
+  document.getElementById("prevBtn").disabled=currentPage<=1;
+  document.getElementById("nextBtn").disabled=currentPage>=totalPages;
+}
+
+function changePage(direction){
+  const next=currentPage+direction;
+  if(next<1 || next>totalPages)return;
+  currentPage=next;
+  loadVideos();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+
+function joinChannel(){
+  const url=settings.promotionalChannel?.url;
+  if(!url){
+    showModal("Promotional Channel","চ্যানেল লিংক এখনো যোগ করা হয়নি।");
+    return;
+  }
+  openExternal(url);
+}
+
+function openReferral(){
+  const user=tg?.initDataUnsafe?.user;
+  if(!user){
+    showModal("Referral","Referral Link তৈরি করতে Telegram Mini App থেকে প্রবেশ করো।");
+    return;
+  }
+
+  const bot="viralbox9_bot";
+  const link=`https://t.me/${bot}?start=ref_${user.id}`;
+
+  showModal(
+    "Referral System",
+    "তোমার Referral Link:\n"+link+
+    "\n\nবন্ধুদের সঙ্গে লিংকটি শেয়ার করো। Referral Reward-এর নিয়ম Admin Panel থেকে নিয়ন্ত্রণ করা হবে।"
+  );
+}
+
+function startUnlock(videoId){
+  showModal(
+    "Video Unlock",
+    "এই ভিডিওর বিজ্ঞাপন Unlock System এখনো Backend-এর সঙ্গে সংযুক্ত করা হচ্ছে। বিজ্ঞাপন সম্পন্ন না করে ভিডিও আনলক হবে না।"
+  );
+}
+
+function openVideoBot(videoId){
+  const url=`https://t.me/viralbox9_bot?start=v_${encodeURIComponent(videoId)}`;
+  openExternal(url);
+}
+
+function openExternal(url){
+  if(tg?.openTelegramLink && url.startsWith("https://t.me/")){
+    tg.openTelegramLink(url);
+  }else if(tg?.openLink){
+    tg.openLink(url);
+  }else{
+    window.open(url,"_blank");
+  }
+}
+
+async function init(){
+  await loadSettings();
+  await loadVideos();
+
+  if(tg?.initData){
+    try{
+      await fetch(API+"/api/me",{headers});
+    }catch(e){
+      console.error("User registration error",e);
+    }
+  }
+}
+
+init();
+</script>
+</body>
+</html>
