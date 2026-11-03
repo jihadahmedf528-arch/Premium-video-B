@@ -1,0 +1,17 @@
+
+{
+  "name": "premium-video",
+  "version": "1.0.0",
+  "description": "Premium Video Telegram Mini App Backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "firebase-admin": "^13.0.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
