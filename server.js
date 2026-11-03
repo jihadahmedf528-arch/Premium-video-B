@@ -5,6 +5,7 @@ const crypto = require("crypto");
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
+app.use(express.static("public"));
 
 const PORT = process.env.PORT || 3000;
 const BOT_TOKEN = process.env.BOT_TOKEN || "";
