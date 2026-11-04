@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#090909">
 <title>Premium Video Admin</title>
+
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#090909;color:#fff;font-family:Arial,sans-serif}
@@ -47,10 +47,17 @@ button:disabled{opacity:.5}
 .video-actions button{padding:8px;font-size:11px}
 #app{display:none}
 #status{font-size:12px;margin:10px 0;color:#ffb47c;white-space:pre-wrap}
+#loginStatus,#videoStatus,#broadcastStatus{font-size:13px;margin-top:10px;color:#ffb47c;white-space:pre-wrap}
 hr{border:0;border-top:1px solid #382626;margin:18px 0}
-@media(max-width:500px){.video{flex-wrap:wrap}.video-actions{width:100%}}
+.note{font-size:12px;color:#aaa;line-height:1.6;margin-top:-5px;margin-bottom:12px}
+.section-tag{color:#ff9a60;font-size:12px;margin-bottom:10px}
+@media(max-width:500px){
+ .video{flex-wrap:wrap}
+ .video-actions{width:100%}
+}
 </style>
 </head>
+
 <body>
 <div class="wrap">
 
@@ -75,7 +82,11 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 <div class="grid">
  <div class="stat">Total Users<strong id="totalUsers">0</strong></div>
  <div class="stat">Total Videos<strong id="totalVideos">0</strong></div>
+ <div class="stat">Total Referrals<strong id="totalReferrals">0</strong></div>
+ <div class="stat">User Credits<strong id="totalCredits">0</strong></div>
 </div>
+
+<!-- APP SETTINGS -->
 
 <div class="panel" style="margin-top:16px">
  <h3>⚙️ App Settings</h3>
@@ -90,24 +101,38 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
  <input id="promoUrl" placeholder="https://t.me/yourchannel">
 
  <hr>
- <h3>🎁 50 Ads Reward</h3>
+
+ <!-- REWARD UNLOCK SETTINGS -->
+
+ <h3>🎁 50 Ads Unlock System</h3>
+
+ <label>Unlock System</label>
+ <select id="unlockEnabled">
+  <option value="true">Enabled</option>
+  <option value="false">Disabled</option>
+ </select>
 
  <label>Required Ads</label>
  <input id="rewardAds" type="number" min="1" max="1000" value="50">
 
- <label>Reward Amount</label>
- <input id="rewardAmount" type="number" min="0" value="1">
+ <label>Unlock Link</label>
+ <input id="unlockUrl" type="url" placeholder="https://example.com/unlock">
 
- <label>Reward Type</label>
- <select id="rewardType">
-  <option value="credit">Credit</option>
-  <option value="balance">Balance</option>
-  <option value="points">Points</option>
- </select>
+ <label>Unlock Section Message</label>
+ <textarea id="unlockMessage" placeholder="Write an attractive message for users..."></textarea>
+
+ <p class="note">
+ এই লিংকটি প্রত্যেক ব্যবহারকারীর জন্য আলাদাভাবে আনলক হবে।
+ বিজ্ঞাপন সম্পন্ন না হওয়া পর্যন্ত ব্যবহারকারী লিংক দেখতে পাবে না।
+ </p>
 
  <hr>
+
+ <!-- REFERRAL SETTINGS -->
+
  <h3>👥 Referral Settings</h3>
- <label>Referral Reward</label>
+
+ <label>Referral Reward (Credit)</label>
  <input id="referralReward" type="number" min="0" value="1">
 
  <label>Referral System</label>
@@ -116,10 +141,31 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
   <option value="false">Disabled</option>
  </select>
 
+ <p class="note">
+ নতুন ব্যবহারকারী সফলভাবে Referral Link দিয়ে প্রথমবার যোগ হলে
+ Referrer-এর Credit বাড়বে।
+ </p>
+
  <hr>
+
+ <!-- AD NETWORK SETTINGS -->
+
  <h3>📢 Advertising Network</h3>
 
- <label>Select Network</label>
+ <label>Adexium Normal Ads</label>
+ <select id="adexiumEnabled">
+  <option value="true">Enabled</option>
+  <option value="false">Disabled</option>
+ </select>
+
+ <label>Adexium Widget ID</label>
+ <input id="adexiumWidget" placeholder="Your Adexium Widget ID">
+
+ <p class="note">
+ Adexium সাধারণ বিজ্ঞাপনের জন্য। Rewarded Ads হিসেবে ব্যবহার করা হবে না।
+ </p>
+
+ <label>Other Advertising Network</label>
  <select id="adNetwork">
   <option value="monetag">Monetag</option>
   <option value="gigapub">GigaPub</option>
@@ -141,15 +187,22 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
  <button onclick="saveSettings()">Save All Settings</button>
 </div>
 
+<!-- CATEGORIES -->
+
 <div class="panel">
  <h3>📂 Video Categories</h3>
+
  <label>Categories (one per line: category-id | Category Name)</label>
  <textarea id="categories" placeholder="premium | Premium&#10;classic | Classic"></textarea>
+
  <button onclick="saveCategories()">Save Categories</button>
 </div>
 
+<!-- VIDEO MANAGEMENT -->
+
 <div class="panel">
  <h3>🎬 Add / Edit Video</h3>
+
  <input type="hidden" id="videoId">
 
  <label>Video Title</label>
@@ -177,32 +230,42 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
   <button onclick="saveVideo()">Save Video</button>
   <button class="secondary" onclick="clearVideo()">Clear</button>
  </div>
+
  <div id="videoStatus"></div>
 </div>
+
+<!-- VIDEO LIST -->
 
 <div class="panel">
  <div class="row" style="align-items:center">
   <h3 style="margin:0">📺 Manage Videos</h3>
   <button class="secondary" onclick="loadVideos()">Refresh</button>
  </div>
+
  <div id="videoList" class="muted" style="margin-top:15px">Loading...</div>
 </div>
 
+<!-- BROADCAST -->
+
 <div class="panel">
  <h3>📣 Broadcast Message</h3>
+
  <label>Message or Link</label>
  <textarea id="broadcastMessage" placeholder="Write a message for all bot users..."></textarea>
+
  <button onclick="sendBroadcast()">Send Broadcast</button>
+
  <div id="broadcastStatus"></div>
 </div>
 
 <div id="status"></div>
+
 </div>
 </div>
 
 <script>
-const API="";
-let key=sessionStorage.getItem("pv_admin_key")||"";
+const API = "";
+let key = sessionStorage.getItem("pv_admin_key") || "";
 
 function authHeaders(){
  return {
@@ -211,266 +274,491 @@ function authHeaders(){
  };
 }
 
-async function api(path,options={}){
- const response=await fetch(API+path,{
+async function api(path, options = {}){
+ const response = await fetch(API + path, {
   ...options,
-  headers:{...authHeaders(),...(options.headers||{})}
+  headers:{
+   ...authHeaders(),
+   ...(options.headers || {})
+  }
  });
- const data=await response.json().catch(()=>({}));
- if(!response.ok)throw new Error(data.error||"Request failed");
+
+ const data = await response.json().catch(()=>({}));
+
+ if(!response.ok){
+  throw new Error(data.error || "Request failed");
+ }
+
  return data;
 }
 
 function logout(){
  sessionStorage.removeItem("pv_admin_key");
- key="";
+ key = "";
  location.reload();
 }
 
 async function login(){
- key=document.getElementById("adminKey").value.trim();
- if(!key)return alert("Admin Key required");
+ key = document.getElementById("adminKey").value.trim();
+
+ if(!key){
+  alert("Admin Key required");
+  return;
+ }
+
  try{
   await api("/api/admin/dashboard");
-  sessionStorage.setItem("pv_admin_key",key);
-  document.getElementById("login").style.display="none";
-  document.getElementById("app").style.display="block";
+
+  sessionStorage.setItem("pv_admin_key", key);
+
+  document.getElementById("login").style.display = "none";
+  document.getElementById("app").style.display = "block";
+
   await loadAll();
+
  }catch(e){
-  document.getElementById("loginStatus").textContent=e.message;
-  key="";
+  document.getElementById("loginStatus").textContent = e.message;
+  key = "";
  }
 }
 
 async function loadAll(){
- await Promise.all([
-  loadDashboard(),
-  loadSettings(),
-  loadVideos()
- ]);
+ try{
+  await Promise.all([
+   loadDashboard(),
+   loadSettings(),
+   loadVideos()
+  ]);
+ }catch(e){
+  document.getElementById("status").textContent = e.message;
+ }
 }
 
 async function loadDashboard(){
- const d=await api("/api/admin/dashboard");
- document.getElementById("totalUsers").textContent=d.totalUsers;
- document.getElementById("totalVideos").textContent=d.totalVideos;
+ const d = await api("/api/admin/dashboard");
+
+ document.getElementById("totalUsers").textContent =
+  d.totalUsers || 0;
+
+ document.getElementById("totalVideos").textContent =
+  d.totalVideos || 0;
+
+ document.getElementById("totalReferrals").textContent =
+  d.totalReferrals || 0;
+
+ document.getElementById("totalCredits").textContent =
+  d.totalCredits || 0;
 }
 
 async function loadSettings(){
- const r=await fetch("/api/settings");
- const d=await r.json();
- if(!d.success)return;
- const s=d.settings;
+ const response = await fetch("/api/settings");
+ const d = await response.json();
 
- document.getElementById("appName").value=s.appName||"Premium Video";
- document.getElementById("promoName").value=s.promotionalChannel?.name||"";
- document.getElementById("promoUrl").value=s.promotionalChannel?.url||"";
+ if(!d.success) return;
 
- document.getElementById("rewardAds").value=s.reward?.adsRequired||50;
- document.getElementById("rewardAmount").value=s.reward?.rewardAmount??1;
- document.getElementById("rewardType").value=s.reward?.rewardType||"credit";
+ const s = d.settings || {};
 
- document.getElementById("referralReward").value=s.referral?.rewardPerReferral??1;
- document.getElementById("referralEnabled").value=String(s.referral?.enabled!==false);
+ document.getElementById("appName").value =
+  s.appName || "Premium Video";
 
- document.getElementById("adNetwork").value=s.ads?.activeNetwork||"monetag";
- document.getElementById("monetagZone").value=s.ads?.monetagZoneId||"";
- document.getElementById("gigapubZone").value=s.ads?.gigapubZoneId||"";
- document.getElementById("adsgramZone").value=s.ads?.adsgramBlockId||"";
- document.getElementById("defaultAds").value=s.ads?.adsPerVideo||2;
+ document.getElementById("promoName").value =
+  s.promotionalChannel?.name || "";
 
- document.getElementById("categories").value=
-  (s.categories||[]).filter(c=>c.id!=="all")
-  .map(c=>`${c.id} | ${c.name}`).join("\n");
+ document.getElementById("promoUrl").value =
+  s.promotionalChannel?.url || "";
+
+ document.getElementById("unlockEnabled").value =
+  String(s.reward?.enabled !== false);
+
+ document.getElementById("rewardAds").value =
+  s.reward?.adsRequired ?? 50;
+
+ document.getElementById("unlockUrl").value =
+  s.reward?.unlockUrl || "";
+
+ document.getElementById("unlockMessage").value =
+  s.reward?.unlockMessage || "";
+
+ document.getElementById("referralReward").value =
+  s.referral?.rewardPerReferral ?? 1;
+
+ document.getElementById("referralEnabled").value =
+  String(s.referral?.enabled !== false);
+
+ document.getElementById("adexiumEnabled").value =
+  String(s.ads?.adexiumEnabled !== false);
+
+ document.getElementById("adexiumWidget").value =
+  s.ads?.adexiumWidgetId || "";
+
+ document.getElementById("adNetwork").value =
+  s.ads?.activeNetwork || "monetag";
+
+ document.getElementById("monetagZone").value =
+  s.ads?.monetagZoneId || "";
+
+ document.getElementById("gigapubZone").value =
+  s.ads?.gigapubZoneId || "";
+
+ document.getElementById("adsgramZone").value =
+  s.ads?.adsgramBlockId || "";
+
+ document.getElementById("defaultAds").value =
+  s.ads?.adsPerVideo ?? 2;
+
+ document.getElementById("categories").value =
+  (s.categories || [])
+   .filter(c => c.id !== "all")
+   .map(c => `${c.id} | ${c.name}`)
+   .join("\n");
 }
 
 async function saveSettings(){
+ const requiredAds =
+  Number(document.getElementById("rewardAds").value);
+
+ const referralReward =
+  Number(document.getElementById("referralReward").value);
+
+ const defaultAds =
+  Number(document.getElementById("defaultAds").value);
+
+ const unlockUrl =
+  document.getElementById("unlockUrl").value.trim();
+
+ if(!Number.isInteger(requiredAds) || requiredAds < 1 || requiredAds > 1000){
+  alert("Required Ads must be between 1 and 1000");
+  return;
+ }
+
+ if(!Number.isFinite(referralReward) || referralReward < 0){
+  alert("Invalid referral reward");
+  return;
+ }
+
+ if(!Number.isInteger(defaultAds) || defaultAds < 1 || defaultAds > 100){
+  alert("Default Ads must be between 1 and 100");
+  return;
+ }
+
+ if(unlockUrl && !/^https?:\/\//i.test(unlockUrl)){
+  alert("Unlock Link must start with http:// or https://");
+  return;
+ }
+
  try{
-  await api("/api/admin/settings",{
+  await api("/api/admin/settings", {
    method:"PUT",
+
    body:JSON.stringify({
-    appName:document.getElementById("appName").value.trim(),
+    appName:
+     document.getElementById("appName").value.trim(),
+
     promotionalChannel:{
-     name:document.getElementById("promoName").value.trim(),
-     url:document.getElementById("promoUrl").value.trim()
+     name:
+      document.getElementById("promoName").value.trim(),
+
+     url:
+      document.getElementById("promoUrl").value.trim()
     },
+
     reward:{
-     enabled:true,
-     adsRequired:Number(document.getElementById("rewardAds").value),
-     rewardAmount:Number(document.getElementById("rewardAmount").value),
-     rewardType:document.getElementById("rewardType").value
+     enabled:
+      document.getElementById("unlockEnabled").value === "true",
+
+     adsRequired:requiredAds,
+
+     unlockUrl,
+
+     unlockMessage:
+      document.getElementById("unlockMessage").value.trim()
     },
+
     referral:{
-     enabled:document.getElementById("referralEnabled").value==="true",
-     rewardPerReferral:Number(document.getElementById("referralReward").value)
+     enabled:
+      document.getElementById("referralEnabled").value === "true",
+
+     rewardPerReferral:referralReward
     },
+
     ads:{
-     activeNetwork:document.getElementById("adNetwork").value,
-     monetagZoneId:document.getElementById("monetagZone").value.trim(),
-     gigapubZoneId:document.getElementById("gigapubZone").value.trim(),
-     adsgramBlockId:document.getElementById("adsgramZone").value.trim(),
-     adsPerVideo:Number(document.getElementById("defaultAds").value)
+     adexiumEnabled:
+      document.getElementById("adexiumEnabled").value === "true",
+
+     adexiumWidgetId:
+      document.getElementById("adexiumWidget").value.trim(),
+
+     activeNetwork:
+      document.getElementById("adNetwork").value,
+
+     monetagZoneId:
+      document.getElementById("monetagZone").value.trim(),
+
+     gigapubZoneId:
+      document.getElementById("gigapubZone").value.trim(),
+
+     adsgramBlockId:
+      document.getElementById("adsgramZone").value.trim(),
+
+     adsPerVideo:defaultAds
     }
    })
   });
+
   alert("Settings saved successfully!");
- }catch(e){alert(e.message)}
+
+ }catch(e){
+  alert(e.message);
+ }
 }
 
 async function saveCategories(){
  try{
-  const lines=document.getElementById("categories").value.split("\n");
-  const categories=[{id:"all",name:"All Videos",enabled:true}];
+  const lines =
+   document.getElementById("categories").value.split("\n");
+
+  const categories = [
+   {id:"all",name:"All Videos",enabled:true}
+  ];
 
   lines.forEach(line=>{
-   if(!line.trim())return;
-   const parts=line.split("|");
-   if(parts.length<2)throw new Error("Use id | Category Name format");
-   const id=parts[0].trim().toLowerCase().replace(/[^a-z0-9_-]/g,"");
-   const name=parts.slice(1).join("|").trim();
-   if(!id||!name)throw new Error("Invalid category");
-   categories.push({id,name,enabled:true});
+   if(!line.trim()) return;
+
+   const parts = line.split("|");
+
+   if(parts.length < 2){
+    throw new Error("Use id | Category Name format");
+   }
+
+   const id = parts[0]
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g,"");
+
+   const name = parts.slice(1).join("|").trim();
+
+   if(!id || !name){
+    throw new Error("Invalid category");
+   }
+
+   categories.push({
+    id,
+    name,
+    enabled:true
+   });
   });
 
   await api("/api/admin/settings",{
    method:"PUT",
    body:JSON.stringify({categories})
   });
+
   await loadSettings();
+
   alert("Categories saved!");
- }catch(e){alert(e.message)}
+
+ }catch(e){
+  alert(e.message);
+ }
 }
 
-async function loadVideos(){
- const box=document.getElementById("videoList");
- box.textContent="Loading videos...";
- try{
-  const r=await fetch("/api/videos?page=1&category=all");
-  const d=await r.json();
-  if(!d.success)throw new Error("Unable to load videos");
+/* Admin-only video endpoint */
 
-  box.innerHTML="";
-  if(!d.videos.length){
-   box.textContent="No videos found";
+async function loadVideos(){
+ const box = document.getElementById("videoList");
+
+ box.textContent = "Loading videos...";
+
+ try{
+  const d = await api("/api/admin/videos");
+
+  box.innerHTML = "";
+
+  if(!d.videos || !d.videos.length){
+   box.textContent = "No videos found";
    return;
   }
 
   d.videos.forEach(v=>{
-   const row=document.createElement("div");
-   row.className="video";
+   const row = document.createElement("div");
+   row.className = "video";
 
-   const img=document.createElement("img");
-   img.src=v.thumbnail||"";
-   img.onerror=()=>img.style.display="none";
+   const img = document.createElement("img");
+   img.src = v.thumbnail || "";
+   img.onerror = ()=>img.style.display = "none";
 
-   const info=document.createElement("div");
-   info.className="video-info";
+   const info = document.createElement("div");
+   info.className = "video-info";
 
-   const title=document.createElement("b");
-   title.textContent=v.title||"Untitled";
+   const title = document.createElement("b");
+   title.textContent = v.title || "Untitled";
 
-   const meta=document.createElement("small");
-   meta.textContent=(v.categoryId||"")+" • "+(v.adsRequired||2)+" Ads";
+   const meta = document.createElement("small");
+   meta.textContent =
+    (v.categoryId || "") + " • " +
+    (v.adsRequired || 2) + " Ads";
 
    info.append(title,meta);
 
-   const actions=document.createElement("div");
-   actions.className="video-actions";
+   const actions = document.createElement("div");
+   actions.className = "video-actions";
 
-   const edit=document.createElement("button");
-   edit.className="secondary";
-   edit.textContent="Edit";
-   edit.onclick=()=>editVideo(v);
+   const edit = document.createElement("button");
+   edit.className = "secondary";
+   edit.textContent = "Edit";
+   edit.onclick = ()=>editVideo(v);
 
-   const del=document.createElement("button");
-   del.className="danger";
-   del.textContent="Delete";
-   del.onclick=()=>deleteVideo(v.id);
+   const del = document.createElement("button");
+   del.className = "danger";
+   del.textContent = "Delete";
+   del.onclick = ()=>deleteVideo(v.id);
 
    actions.append(edit,del);
+
    row.append(img,info,actions);
    box.appendChild(row);
   });
- }catch(e){box.textContent=e.message}
+
+ }catch(e){
+  box.textContent = e.message;
+ }
 }
 
 function editVideo(v){
- document.getElementById("videoId").value=v.id;
- document.getElementById("videoTitle").value=v.title||"";
- document.getElementById("videoDescription").value=v.description||"";
- document.getElementById("videoThumbnail").value=v.thumbnail||"";
- document.getElementById("videoUrl").value=v.videoUrl||"";
- document.getElementById("videoCategory").value=v.categoryId||"premium";
- document.getElementById("videoAds").value=v.adsRequired||2;
- window.scrollTo({top:document.getElementById("videoTitle").offsetTop-30,behavior:"smooth"});
+ document.getElementById("videoId").value = v.id;
+ document.getElementById("videoTitle").value = v.title || "";
+ document.getElementById("videoDescription").value = v.description || "";
+ document.getElementById("videoThumbnail").value = v.thumbnail || "";
+ document.getElementById("videoUrl").value = v.videoUrl || "";
+ document.getElementById("videoCategory").value = v.categoryId || "premium";
+ document.getElementById("videoAds").value = v.adsRequired || 2;
+
+ window.scrollTo({
+  top:document.getElementById("videoTitle").offsetTop - 30,
+  behavior:"smooth"
+ });
 }
 
 function clearVideo(){
- ["videoId","videoTitle","videoDescription","videoThumbnail","videoUrl"]
- .forEach(id=>document.getElementById(id).value="");
- document.getElementById("videoAds").value=2;
- document.getElementById("videoCategory").value="premium";
+ [
+  "videoId",
+  "videoTitle",
+  "videoDescription",
+  "videoThumbnail",
+  "videoUrl"
+ ].forEach(id=>{
+  document.getElementById(id).value = "";
+ });
+
+ document.getElementById("videoAds").value = 2;
+ document.getElementById("videoCategory").value = "premium";
 }
 
 async function saveVideo(){
- const id=document.getElementById("videoId").value;
- const body={
+ const id = document.getElementById("videoId").value;
+
+ const body = {
   title:document.getElementById("videoTitle").value.trim(),
-  description:document.getElementById("videoDescription").value.trim(),
-  thumbnail:document.getElementById("videoThumbnail").value.trim(),
-  videoUrl:document.getElementById("videoUrl").value.trim(),
-  categoryId:document.getElementById("videoCategory").value,
-  adsRequired:Number(document.getElementById("videoAds").value)
+
+  description:
+   document.getElementById("videoDescription").value.trim(),
+
+  thumbnail:
+   document.getElementById("videoThumbnail").value.trim(),
+
+  videoUrl:
+   document.getElementById("videoUrl").value.trim(),
+
+  categoryId:
+   document.getElementById("videoCategory").value,
+
+  adsRequired:
+   Number(document.getElementById("videoAds").value)
  };
 
- if(!body.title||!body.thumbnail||!body.videoUrl){
+ if(!body.title || !body.thumbnail || !body.videoUrl){
   alert("Title, Thumbnail and Video URL are required");
   return;
  }
 
  try{
-  await api(id?"/api/admin/videos/"+encodeURIComponent(id):"/api/admin/videos",{
-   method:id?"PUT":"POST",
-   body:JSON.stringify(body)
-  });
-  document.getElementById("videoStatus").textContent="Video saved successfully!";
+  await api(
+   id
+    ? "/api/admin/videos/" + encodeURIComponent(id)
+    : "/api/admin/videos",
+   {
+    method:id ? "PUT" : "POST",
+    body:JSON.stringify(body)
+   }
+  );
+
+  document.getElementById("videoStatus").textContent =
+   "Video saved successfully!";
+
   clearVideo();
+
   await loadVideos();
   await loadDashboard();
+
  }catch(e){
-  document.getElementById("videoStatus").textContent=e.message;
+  document.getElementById("videoStatus").textContent = e.message;
  }
 }
 
 async function deleteVideo(id){
- if(!confirm("Are you sure you want to delete this video?"))return;
+ if(!confirm("Are you sure you want to delete this video?")){
+  return;
+ }
+
  try{
-  await api("/api/admin/videos/"+encodeURIComponent(id),{method:"DELETE"});
+  await api(
+   "/api/admin/videos/" + encodeURIComponent(id),
+   {method:"DELETE"}
+  );
+
   await loadVideos();
   await loadDashboard();
- }catch(e){alert(e.message)}
+
+ }catch(e){
+  alert(e.message);
+ }
 }
 
 async function sendBroadcast(){
- const message=document.getElementById("broadcastMessage").value.trim();
- if(!message)return alert("Write a message first");
- if(!confirm("Send this message to all bot users?"))return;
+ const message =
+  document.getElementById("broadcastMessage").value.trim();
 
- const box=document.getElementById("broadcastStatus");
- box.textContent="Sending...";
+ if(!message){
+  alert("Write a message first");
+  return;
+ }
+
+ if(!confirm("Send this message to all bot users?")){
+  return;
+ }
+
+ const box = document.getElementById("broadcastStatus");
+ box.textContent = "Sending...";
+
  try{
-  const d=await api("/api/admin/broadcast",{
+  const d = await api("/api/admin/broadcast",{
    method:"POST",
    body:JSON.stringify({message})
   });
-  box.textContent=`Completed. Sent: ${d.sent}, Failed: ${d.failed}`;
- }catch(e){box.textContent=e.message}
+
+  box.textContent =
+   `Completed. Sent: ${d.sent}, Failed: ${d.failed}`;
+
+ }catch(e){
+  box.textContent = e.message;
+ }
 }
 
 if(key){
- document.getElementById("adminKey").value=key;
+ document.getElementById("adminKey").value = key;
  login();
 }
 </script>
+
 </body>
 </html>
