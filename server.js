@@ -16,14 +16,8 @@ const PUBLIC_URL = process.env.PUBLIC_URL || "";
 const VIDEO_BOT_USERNAME = process.env.VIDEO_BOT_USERNAME || "";
 const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || "";
 
-const MONETAG_POSTBACK_SECRET =
-  process.env.MONETAG_POSTBACK_SECRET || "";
-
-const MONETAG_ZONE_ID = "12187766";
 const ADEXIUM_DEFAULT_WID =
   "d7ac754e-70bc-484b-8346-75eb7b5fa3b6";
-
-const REWARD_SESSION_MAX_AGE = 48 * 60 * 60 * 1000;
 
 let db;
 let firebaseReady = false;
@@ -57,11 +51,9 @@ const DEFAULT_SETTINGS = {
     rewardPerReferral: 1
   },
 
-  // Only Adexium and Monetag are supported.
   ads: {
     adexiumEnabled: true,
     adexiumWidgetId: ADEXIUM_DEFAULT_WID,
-    monetagZoneId: MONETAG_ZONE_ID,
     adsPerVideo: 2
   },
 
@@ -526,8 +518,6 @@ function mergeSettings(saved = {}) {
       ...(saved.referral || {})
     },
 
-    // Only keep Adexium and Monetag settings.
-    // Old GigaPub and AdsGram fields are ignored.
     ads: {
       adexiumEnabled:
         savedAds.adexiumEnabled !== false,
@@ -537,8 +527,6 @@ function mergeSettings(saved = {}) {
           savedAds.adexiumWidgetId ||
           ADEXIUM_DEFAULT_WID
         ),
-
-      monetagZoneId: MONETAG_ZONE_ID,
 
       adsPerVideo: Math.max(
         1,
@@ -557,8 +545,10 @@ function mergeSettings(saved = {}) {
   };
 }
 
+/* Adexium Reward progress */
+
 function getRewardProgress(userData = {}) {
-  const progress = userData.rewardProgress || {};
+  const progress = userData.adexiumRewardProgress || {};
 
   return {
     completed: Math.max(
@@ -623,7 +613,6 @@ app.get(
         snapshot.val() || {}
       );
 
-      // Never expose the private unlock URL publicly.
       settings.reward.unlockUrl = "";
 
       res.json({
@@ -795,89 +784,7 @@ app.get(
   }
 );
 
-/* Create a Monetag rewarded-ad session */
-
-app.post(
-  "/api/reward/session",
-  requireFirebase,
-  requireTelegramUser,
-  async (req, res) => {
-    try {
-      // Do not start a reward session unless the
-      // server-to-server postback secret is configured.
-      if (!MONETAG_POSTBACK_SECRET) {
-        return res.status(503).json({
-          success: false,
-          error: "Reward system is temporarily unavailable"
-        });
-      }
-
-      const user = req.telegramUser;
-
-      await saveTelegramUser(user);
-
-      const [settingsSnap, userSnap] = await Promise.all([
-        db.ref("settings").once("value"),
-        db.ref(`users/${user.id}`).once("value")
-      ]);
-
-      const settings = mergeSettings(
-        settingsSnap.val() || {}
-      );
-
-      const userData = userSnap.val() || {};
-      const reward = settings.reward;
-      const status = getRewardStatus(settings, userData);
-
-      if (!reward.enabled) {
-        return res.status(403).json({
-          success: false,
-          error: "Reward system is disabled"
-        });
-      }
-
-      if (!reward.unlockUrl) {
-        return res.status(400).json({
-          success: false,
-          error: "Unlock URL is not configured"
-        });
-      }
-
-      if (status.unlocked) {
-        return res.json({
-          ...status,
-          ymid: null
-        });
-      }
-
-      const ymid = crypto.randomBytes(24).toString("hex");
-      const now = Date.now();
-
-      await db.ref(`monetagSessions/${ymid}`).set({
-        ymid,
-        userId: String(user.id),
-        zoneId: MONETAG_ZONE_ID,
-        status: "pending",
-        createdAt: now
-      });
-
-      res.json({
-        success: true,
-        ymid,
-        zoneId: MONETAG_ZONE_ID
-      });
-    } catch (error) {
-      console.error("Reward session error:", error.message);
-
-      res.status(500).json({
-        success: false,
-        error: "Could not create reward session"
-      });
-    }
-  }
-);
-
-/* Get the logged-in user's reward progress */
+/* Get reward status */
 
 app.get(
   "/api/reward/status",
@@ -912,111 +819,174 @@ app.get(
   }
 );
 
-/* Monetag server-to-server postback */
+/* Verify Adexium task and credit reward */
 
-app.get(
-  "/api/monetag/postback",
+app.post(
+  "/api/reward/verify",
   requireFirebase,
+  requireTelegramUser,
   async (req, res) => {
     try {
-      if (!MONETAG_POSTBACK_SECRET) {
+      const user = req.telegramUser;
+      const taskId = String(req.body.taskId || "").trim();
+
+      if (
+        !taskId ||
+        taskId.length > 250 ||
+        !/^[a-zA-Z0-9_-]+$/.test(taskId)
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid Adexium task ID"
+        });
+      }
+
+      await saveTelegramUser(user);
+
+      const [settingsSnap, userSnap] = await Promise.all([
+        db.ref("settings").once("value"),
+        db.ref(`users/${user.id}`).once("value")
+      ]);
+
+      const settings = mergeSettings(
+        settingsSnap.val() || {}
+      );
+
+      const userData = userSnap.val() || {};
+      const reward = settings.reward;
+
+      if (!reward.enabled) {
+        return res.status(403).json({
+          success: false,
+          error: "Reward system is disabled"
+        });
+      }
+
+      if (!reward.unlockUrl) {
+        return res.status(400).json({
+          success: false,
+          error: "Reward unlock URL is not configured"
+        });
+      }
+
+      if (settings.ads.adexiumEnabled === false) {
+        return res.status(403).json({
+          success: false,
+          error: "Adexium ads are disabled"
+        });
+      }
+
+      const wid = settings.ads.adexiumWidgetId;
+
+      if (!wid || wid.length > 150) {
+        return res.status(500).json({
+          success: false,
+          error: "Adexium Widget ID is invalid"
+        });
+      }
+
+      /*
+       * Verify the task directly with Adexium.
+       * Client-side playback events are not trusted.
+       */
+
+      const verifyUrl =
+        "https://bid.tgads.live/task/check/" +
+        encodeURIComponent(wid) + "/" +
+        encodeURIComponent(taskId);
+
+      const verifyResponse = await fetch(verifyUrl, {
+        method: "GET",
+        headers: {
+          "Accept": "application/json"
+        },
+        signal: AbortSignal.timeout(12000)
+      });
+
+      if (!verifyResponse.ok) {
         console.error(
-          "MONETAG_POSTBACK_SECRET is not configured"
+          "Adexium verification HTTP status:",
+          verifyResponse.status
         );
 
-        return res.sendStatus(503);
+        return res.status(502).json({
+          success: false,
+          error: "Adexium verification service unavailable"
+        });
       }
 
-      const suppliedSecret = String(
-        req.query.secret || ""
+      const verification = await verifyResponse.json();
+
+      if (verification.done !== true) {
+        return res.status(403).json({
+          success: false,
+          error: "Adexium has not confirmed this ad task"
+        });
+      }
+
+      /*
+       * A global task claim prevents a task from
+       * being credited to multiple Telegram users.
+       */
+
+      const taskHash = crypto
+        .createHash("sha256")
+        .update(taskId)
+        .digest("hex");
+
+      const claimRef = db.ref(
+        `adexiumTaskClaims/${taskHash}`
       );
 
-      if (
-        !safeCompare(
-          suppliedSecret,
-          MONETAG_POSTBACK_SECRET
-        )
-      ) {
-        return res.sendStatus(403);
-      }
+      const claimResult = await claimRef.transaction(
+        current => {
+          if (current) return;
 
-      const ymid = String(req.query.ymid || "");
-      const zoneId = String(req.query.zone_id || "");
-      const eventType = String(
-        req.query.event_type || ""
-      );
-      const rewardEventType = String(
-        req.query.reward_event_type || ""
+          return {
+            userId: String(user.id),
+            createdAt: Date.now(),
+            status: "claimed"
+          };
+        }
       );
 
-      if (!/^[a-f0-9]{48}$/i.test(ymid)) {
-        return res.status(400).send("Invalid ymid");
-      }
-
-      if (zoneId !== MONETAG_ZONE_ID) {
-        return res.status(400).send("Invalid zone");
-      }
-
-      // Only a valued impression earns progress.
-      // Clicks, ordinary impressions and non-valued events do not.
-      if (
-        eventType !== "impression" ||
-        rewardEventType !== "valued"
-      ) {
-        return res.status(200).send("Event ignored");
-      }
-
-      const sessionRef = db.ref(
-        `monetagSessions/${ymid}`
-      );
-
-      const sessionSnap = await sessionRef.once("value");
-
-      if (!sessionSnap.exists()) {
-        return res.status(404).send("Session not found");
-      }
-
-      const session = sessionSnap.val() || {};
+      const claim = claimResult.snapshot.val();
 
       if (
-        String(session.zoneId) !== MONETAG_ZONE_ID ||
-        !session.userId
+        !claim ||
+        String(claim.userId) !== String(user.id)
       ) {
-        return res.status(400).send("Invalid session");
+        return res.status(409).json({
+          success: false,
+          error: "This ad task has already been claimed"
+        });
       }
 
-      const createdAt = Number(session.createdAt) || 0;
+      /*
+       * Separate Adexium progress path.
+       * Old Monetag rewardProgress data is untouched.
+       */
 
-      if (
-        !createdAt ||
-        Date.now() - createdAt > REWARD_SESSION_MAX_AGE ||
-        createdAt > Date.now() + 60000
-      ) {
-        return res.status(410).send("Session expired");
-      }
-
-      const userId = String(session.userId);
       const progressRef = db.ref(
-        `users/${userId}/rewardProgress`
+        `users/${user.id}/adexiumRewardProgress`
       );
 
-      // The event marker and counter are updated in one
-      // Firebase transaction. Duplicate postbacks cannot
-      // increase the user's reward progress twice.
-      const transactionResult = await progressRef.transaction(
+      const progressResult = await progressRef.transaction(
         current => {
           current = current || {};
 
-          current.completed =
-            Math.max(0, Number(current.completed) || 0);
+          current.completed = Math.max(
+            0,
+            Number(current.completed) || 0
+          );
 
           current.events = current.events || {};
 
-          if (current.events[ymid]) {
+          if (current.events[taskHash]) {
             return current;
           }
 
-          current.events[ymid] = true;
+          current.events[taskHash] = true;
           current.completed += 1;
           current.updatedAt = Date.now();
 
@@ -1024,30 +994,51 @@ app.get(
         }
       );
 
-      if (!transactionResult.committed) {
-        return res.status(500).send("Could not update progress");
+      if (!progressResult.committed) {
+        return res.status(500).json({
+          success: false,
+          error: "Could not update reward progress"
+        });
       }
 
-      await sessionRef.update({
+      await claimRef.update({
         status: "credited",
         creditedAt: Date.now()
       });
 
-      const finalProgress =
-        transactionResult.snapshot.val() || {};
+      const latestUserSnap = await db
+        .ref(`users/${user.id}`)
+        .once("value");
 
-      console.log(
-        `Monetag reward credited: user=${userId}, completed=${finalProgress.completed}`
+      const latestUser = latestUserSnap.val() || {};
+
+      const status = getRewardStatus(
+        settings,
+        latestUser
       );
 
-      return res.status(200).send("Reward processed");
+      console.log(
+        `Adexium reward credited: user=${user.id}, completed=${status.completed}`
+      );
+
+      return res.json({
+        ...status,
+        verified: true,
+        message: status.unlocked
+          ? "Reward unlocked"
+          : "Ad successfully verified"
+      });
+
     } catch (error) {
       console.error(
-        "Monetag postback error:",
+        "Adexium reward verification error:",
         error.message
       );
 
-      return res.status(500).send("Postback error");
+      res.status(500).json({
+        success: false,
+        error: "Could not verify Adexium reward"
+      });
     }
   }
 );
@@ -1243,7 +1234,7 @@ app.put(
         };
       }
 
-      /* Save Adexium + Monetag settings only */
+      /* Save Adexium settings only */
 
       if (updates.ads) {
         const currentSnap = await db
@@ -1293,10 +1284,6 @@ app.put(
               : current.adexiumEnabled !== false,
 
           adexiumWidgetId: widgetId,
-
-          // This zone is fixed to match the Monetag SDK.
-          monetagZoneId: MONETAG_ZONE_ID,
-
           adsPerVideo
         };
       }
