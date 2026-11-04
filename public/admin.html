@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -20,7 +21,6 @@ input,textarea,select{
  background:#0e0e0e;border:1px solid #443333;
  color:white;border-radius:8px;font-size:14px
 }
-input:disabled{opacity:.7;color:#aaa}
 textarea{min-height:85px;resize:vertical}
 label{font-size:12px;color:#c9baba}
 button{
@@ -47,11 +47,11 @@ button:disabled{opacity:.5}
 .video-actions{display:flex;gap:5px}
 .video-actions button{padding:8px;font-size:11px}
 #app{display:none}
-#status{font-size:12px;margin:10px 0;color:#ffb47c;white-space:pre-wrap}
-#loginStatus,#videoStatus,#broadcastStatus{font-size:13px;margin-top:10px;color:#ffb47c;white-space:pre-wrap}
+#status,#loginStatus,#videoStatus,#broadcastStatus{
+ font-size:13px;margin-top:10px;color:#ffb47c;white-space:pre-wrap
+}
 hr{border:0;border-top:1px solid #382626;margin:18px 0}
 .note{font-size:12px;color:#aaa;line-height:1.6;margin-top:-5px;margin-bottom:12px}
-.section-tag{color:#ff9a60;font-size:12px;margin-bottom:10px}
 @media(max-width:500px){
  .video{flex-wrap:wrap}
  .video-actions{width:100%}
@@ -87,8 +87,6 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
  <div class="stat">User Credits<strong id="totalCredits">0</strong></div>
 </div>
 
-<!-- APP SETTINGS -->
-
 <div class="panel" style="margin-top:16px">
  <h3>⚙️ App Settings</h3>
 
@@ -103,33 +101,31 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 
  <hr>
 
- <!-- REWARD SETTINGS -->
+ <h3>🎁 Adexium Reward Unlock</h3>
 
- <h3>🎁 Reward Ads Unlock System</h3>
-
- <label>Unlock System</label>
+ <label>Reward Unlock System</label>
  <select id="unlockEnabled">
   <option value="true">Enabled</option>
   <option value="false">Disabled</option>
  </select>
 
- <label>Required Rewarded Ads</label>
+ <label>Required Reward Ads</label>
  <input id="rewardAds" type="number" min="1" max="1000" value="50">
 
- <label>Unlock Link</label>
+ <label>Private Unlock URL</label>
  <input id="unlockUrl" type="url" placeholder="https://example.com/unlock">
 
  <label>Unlock Section Message</label>
- <textarea id="unlockMessage" maxlength="500" placeholder="Write an attractive message for users..."></textarea>
+ <textarea id="unlockMessage" maxlength="500"
+ placeholder="Write an attractive message for users..."></textarea>
 
  <p class="note">
- প্রয়োজনীয় সংখ্যক Monetag Rewarded Ads-এর valued impression নিশ্চিত হলে
- ব্যবহারকারীর জন্য Unlock Link প্রকাশ হবে। প্রত্যেক ব্যবহারকারীর অগ্রগতি আলাদা থাকবে।
+ ব্যবহারকারী Reward বাটনে ক্লিক করে Adexium বিজ্ঞাপন সম্পন্ন করলে
+ সার্ভার যাচাই করবে। যাচাই সফল হলেই Reward-এর সংখ্যা বাড়বে।
+ অ্যাপ খোলার সময় বা ভিডিও দেখার সময় আসা বিজ্ঞাপন Reward-এ গণনা হবে না।
  </p>
 
  <hr>
-
- <!-- REFERRAL SETTINGS -->
 
  <h3>👥 Referral Settings</h3>
 
@@ -143,45 +139,29 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
  </select>
 
  <p class="note">
- নতুন ব্যবহারকারী সফলভাবে Referral Link দিয়ে প্রথমবার যোগ হলে
- Referrer-এর Credit বাড়বে। Referral Credit এবং Rewarded Ads আলাদা।
+ Referral Credit এবং Adexium Reward আলাদা থাকবে।
+ সফল Referral হলে Referrer-এর Credit বাড়বে।
  </p>
 
  <hr>
 
- <!-- AD NETWORK SETTINGS -->
+ <h3>📢 Adexium Advertising</h3>
 
- <h3>📢 Advertising Network</h3>
-
- <label>Adexium Normal Ads</label>
+ <label>Adexium Ads</label>
  <select id="adexiumEnabled">
   <option value="true">Enabled</option>
   <option value="false">Disabled</option>
  </select>
 
  <label>Adexium Widget ID</label>
- <input
-  id="adexiumWidget"
-  placeholder="Adexium Widget ID"
-  value="d7ac754e-70bc-484b-8346-75eb7b5fa3b6"
- >
+ <input id="adexiumWidget"
+ value="d7ac754e-70bc-484b-8346-75eb7b5fa3b6"
+ placeholder="Adexium Widget ID">
 
  <p class="note">
- Adexium সাধারণ Interstitial বিজ্ঞাপনের জন্য ব্যবহার হবে।
- এটি Monetag Rewarded Ads-এর সংখ্যার সঙ্গে যোগ হবে না।
- </p>
-
- <hr>
-
- <h3>🎯 Monetag Rewarded Ads</h3>
-
- <label>Monetag Rewarded Ads Zone ID</label>
- <input id="monetagZone" value="12187766" disabled>
-
- <p class="note">
- নির্দিষ্ট Monetag Zone ID: 12187766।
- এটি Server ও SDK-এর সঙ্গে মিল রেখে স্থির রাখা হয়েছে।
- Reward কেবল Server-এ Monetag-এর verified valued impression postback এলে গণনা হবে।
+ Adexium Interstitial বিজ্ঞাপন ব্যবহার হবে।
+ অ্যাপ খোলা এবং ভিডিও Watch করার সময় বিজ্ঞাপন দেখানো যাবে।
+ এই বিজ্ঞাপনগুলো Reward Ads-এর অগ্রগতিতে যোগ হবে না।
  </p>
 
  <label>Default Ads Per Video</label>
@@ -189,8 +169,6 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 
  <button onclick="saveSettings()">Save All Settings</button>
 </div>
-
-<!-- CATEGORIES -->
 
 <div class="panel">
  <h3>📂 Video Categories</h3>
@@ -200,8 +178,6 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 
  <button onclick="saveCategories()">Save Categories</button>
 </div>
-
-<!-- VIDEO MANAGEMENT -->
 
 <div class="panel">
  <h3>🎬 Add / Edit Video</h3>
@@ -237,8 +213,6 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
  <div id="videoStatus"></div>
 </div>
 
-<!-- VIDEO LIST -->
-
 <div class="panel">
  <div class="row" style="align-items:center">
   <h3 style="margin:0">📺 Manage Videos</h3>
@@ -247,8 +221,6 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 
  <div id="videoList" class="muted" style="margin-top:15px">Loading...</div>
 </div>
-
-<!-- BROADCAST -->
 
 <div class="panel">
  <h3>📣 Broadcast Message</h3>
@@ -270,7 +242,6 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 const API = "";
 let key = sessionStorage.getItem("pv_admin_key") || "";
 
-const MONETAG_ZONE_ID = "12187766";
 const DEFAULT_ADEXIUM_WIDGET_ID =
  "d7ac754e-70bc-484b-8346-75eb7b5fa3b6";
 
@@ -344,20 +315,11 @@ async function loadAll(){
 async function loadDashboard(){
  const d = await api("/api/admin/dashboard");
 
- document.getElementById("totalUsers").textContent =
-  d.totalUsers || 0;
-
- document.getElementById("totalVideos").textContent =
-  d.totalVideos || 0;
-
- document.getElementById("totalReferrals").textContent =
-  d.totalReferrals || 0;
-
- document.getElementById("totalCredits").textContent =
-  d.totalCredits || 0;
+ document.getElementById("totalUsers").textContent = d.totalUsers || 0;
+ document.getElementById("totalVideos").textContent = d.totalVideos || 0;
+ document.getElementById("totalReferrals").textContent = d.totalReferrals || 0;
+ document.getElementById("totalCredits").textContent = d.totalCredits || 0;
 }
-
-/* Load private settings using authenticated Admin API */
 
 async function loadSettings(){
  const d = await api("/api/admin/settings");
@@ -402,9 +364,6 @@ async function loadSettings(){
  document.getElementById("adexiumWidget").value =
   s.ads?.adexiumWidgetId || DEFAULT_ADEXIUM_WIDGET_ID;
 
- document.getElementById("monetagZone").value =
-  MONETAG_ZONE_ID;
-
  document.getElementById("defaultAds").value =
   s.ads?.adsPerVideo ?? 2;
 
@@ -434,29 +393,17 @@ async function saveSettings(){
  const adexiumWidgetId =
   document.getElementById("adexiumWidget").value.trim();
 
- if(
-  !Number.isInteger(requiredAds) ||
-  requiredAds < 1 ||
-  requiredAds > 1000
- ){
+ if(!Number.isInteger(requiredAds) || requiredAds < 1 || requiredAds > 1000){
   alert("Required Ads must be between 1 and 1000");
   return;
  }
 
- if(
-  !Number.isFinite(referralReward) ||
-  referralReward < 0 ||
-  referralReward > 1000000
- ){
+ if(!Number.isFinite(referralReward) || referralReward < 0 || referralReward > 1000000){
   alert("Invalid referral reward");
   return;
  }
 
- if(
-  !Number.isInteger(defaultAds) ||
-  defaultAds < 1 ||
-  defaultAds > 100
- ){
+ if(!Number.isInteger(defaultAds) || defaultAds < 1 || defaultAds > 100){
   alert("Default Ads must be between 1 and 100");
   return;
  }
@@ -475,10 +422,7 @@ async function saveSettings(){
   try{
    const parsed = new URL(unlockUrl);
 
-   if(
-    parsed.protocol !== "https:" &&
-    parsed.protocol !== "http:"
-   ){
+   if(parsed.protocol !== "https:" && parsed.protocol !== "http:"){
     throw new Error("Invalid URL");
    }
   }catch(e){
@@ -488,52 +432,37 @@ async function saveSettings(){
  }
 
  try{
-  await api("/api/admin/settings", {
+  await api("/api/admin/settings",{
    method:"PUT",
-
    body:JSON.stringify({
-    appName:
-     document.getElementById("appName").value.trim(),
+    appName:document.getElementById("appName").value.trim(),
 
     promotionalChannel:{
-     name:
-      document.getElementById("promoName").value.trim(),
-
-     url:
-      document.getElementById("promoUrl").value.trim()
+     name:document.getElementById("promoName").value.trim(),
+     url:document.getElementById("promoUrl").value.trim()
     },
 
     reward:{
-     enabled:
-      document.getElementById("unlockEnabled").value === "true",
-
+     enabled:document.getElementById("unlockEnabled").value === "true",
      adsRequired:requiredAds,
      unlockUrl,
      unlockMessage
     },
 
     referral:{
-     enabled:
-      document.getElementById("referralEnabled").value === "true",
-
+     enabled:document.getElementById("referralEnabled").value === "true",
      rewardPerReferral:referralReward
     },
 
     ads:{
-     adexiumEnabled:
-      document.getElementById("adexiumEnabled").value === "true",
-
+     adexiumEnabled:document.getElementById("adexiumEnabled").value === "true",
      adexiumWidgetId,
-
-     monetagZoneId:MONETAG_ZONE_ID,
-
      adsPerVideo:defaultAds
     }
    })
   });
 
   await loadSettings();
-
   alert("Settings saved successfully!");
 
  }catch(e){
@@ -543,8 +472,7 @@ async function saveSettings(){
 
 async function saveCategories(){
  try{
-  const lines =
-   document.getElementById("categories").value.split("\n");
+  const lines = document.getElementById("categories").value.split("\n");
 
   const categories = [
    {id:"all",name:"All Videos",enabled:true}
@@ -559,30 +487,14 @@ async function saveCategories(){
     throw new Error("Use id | Category Name format");
    }
 
-   const id = parts[0]
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g,"");
-
+   const id = parts[0].trim().toLowerCase().replace(/[^a-z0-9_-]/g,"");
    const name = parts.slice(1).join("|").trim();
 
-   if(!id || !name){
-    throw new Error("Invalid category");
-   }
+   if(!id || !name) throw new Error("Invalid category");
+   if(id === "all") throw new Error("The category ID 'all' is reserved");
+   if(categories.some(c=>c.id===id)) throw new Error("Duplicate category ID: " + id);
 
-   if(id === "all"){
-    throw new Error("The category ID 'all' is reserved");
-   }
-
-   if(categories.some(c => c.id === id)){
-    throw new Error("Duplicate category ID: " + id);
-   }
-
-   categories.push({
-    id,
-    name,
-    enabled:true
-   });
+   categories.push({id,name,enabled:true});
   });
 
   await api("/api/admin/settings",{
@@ -591,7 +503,6 @@ async function saveCategories(){
   });
 
   await loadSettings();
-
   alert("Categories saved!");
 
  }catch(e){
@@ -599,16 +510,12 @@ async function saveCategories(){
  }
 }
 
-/* Admin-only video endpoint */
-
 async function loadVideos(){
  const box = document.getElementById("videoList");
-
  box.textContent = "Loading videos...";
 
  try{
   const d = await api("/api/admin/videos");
-
   box.innerHTML = "";
 
   if(!d.videos || !d.videos.length){
@@ -631,9 +538,7 @@ async function loadVideos(){
    title.textContent = v.title || "Untitled";
 
    const meta = document.createElement("small");
-   meta.textContent =
-    (v.categoryId || "") + " • " +
-    (v.adsRequired || 2) + " Ads";
+   meta.textContent = (v.categoryId || "") + " • " + (v.adsRequired || 2) + " Ads";
 
    info.append(title,meta);
 
@@ -651,7 +556,6 @@ async function loadVideos(){
    del.onclick = ()=>deleteVideo(v.id);
 
    actions.append(edit,del);
-
    row.append(img,info,actions);
    box.appendChild(row);
   });
@@ -677,13 +581,7 @@ function editVideo(v){
 }
 
 function clearVideo(){
- [
-  "videoId",
-  "videoTitle",
-  "videoDescription",
-  "videoThumbnail",
-  "videoUrl"
- ].forEach(id=>{
+ ["videoId","videoTitle","videoDescription","videoThumbnail","videoUrl"].forEach(id=>{
   document.getElementById(id).value = "";
  });
 
@@ -696,21 +594,11 @@ async function saveVideo(){
 
  const body = {
   title:document.getElementById("videoTitle").value.trim(),
-
-  description:
-   document.getElementById("videoDescription").value.trim(),
-
-  thumbnail:
-   document.getElementById("videoThumbnail").value.trim(),
-
-  videoUrl:
-   document.getElementById("videoUrl").value.trim(),
-
-  categoryId:
-   document.getElementById("videoCategory").value,
-
-  adsRequired:
-   Number(document.getElementById("videoAds").value)
+  description:document.getElementById("videoDescription").value.trim(),
+  thumbnail:document.getElementById("videoThumbnail").value.trim(),
+  videoUrl:document.getElementById("videoUrl").value.trim(),
+  categoryId:document.getElementById("videoCategory").value,
+  adsRequired:Number(document.getElementById("videoAds").value)
  };
 
  if(!body.title || !body.thumbnail || !body.videoUrl){
@@ -718,31 +606,22 @@ async function saveVideo(){
   return;
  }
 
- if(
-  !Number.isInteger(body.adsRequired) ||
-  body.adsRequired < 1 ||
-  body.adsRequired > 100
- ){
+ if(!Number.isInteger(body.adsRequired) || body.adsRequired < 1 || body.adsRequired > 100){
   alert("Ads Required must be between 1 and 100");
   return;
  }
 
  try{
   await api(
-   id
-    ? "/api/admin/videos/" + encodeURIComponent(id)
-    : "/api/admin/videos",
+   id ? "/api/admin/videos/" + encodeURIComponent(id) : "/api/admin/videos",
    {
     method:id ? "PUT" : "POST",
     body:JSON.stringify(body)
    }
   );
 
-  document.getElementById("videoStatus").textContent =
-   "Video saved successfully!";
-
+  document.getElementById("videoStatus").textContent = "Video saved successfully!";
   clearVideo();
-
   await loadVideos();
   await loadDashboard();
 
@@ -752,27 +631,19 @@ async function saveVideo(){
 }
 
 async function deleteVideo(id){
- if(!confirm("Are you sure you want to delete this video?")){
-  return;
- }
+ if(!confirm("Are you sure you want to delete this video?")) return;
 
  try{
-  await api(
-   "/api/admin/videos/" + encodeURIComponent(id),
-   {method:"DELETE"}
-  );
-
+  await api("/api/admin/videos/" + encodeURIComponent(id),{method:"DELETE"});
   await loadVideos();
   await loadDashboard();
-
  }catch(e){
   alert(e.message);
  }
 }
 
 async function sendBroadcast(){
- const message =
-  document.getElementById("broadcastMessage").value.trim();
+ const message = document.getElementById("broadcastMessage").value.trim();
 
  if(!message){
   alert("Write a message first");
@@ -784,9 +655,7 @@ async function sendBroadcast(){
   return;
  }
 
- if(!confirm("Send this message to all bot users?")){
-  return;
- }
+ if(!confirm("Send this message to all bot users?")) return;
 
  const box = document.getElementById("broadcastStatus");
  box.textContent = "Sending...";
@@ -797,15 +666,12 @@ async function sendBroadcast(){
    body:JSON.stringify({message})
   });
 
-  box.textContent =
-   `Completed. Sent: ${d.sent}, Failed: ${d.failed}`;
+  box.textContent = `Completed. Sent: ${d.sent}, Failed: ${d.failed}`;
 
  }catch(e){
   box.textContent = e.message;
  }
 }
-
-/* Restore admin session */
 
 if(key){
  document.getElementById("adminKey").value = key;
