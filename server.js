@@ -1,3 +1,4 @@
+
 const express = require("express");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
@@ -14,6 +15,12 @@ const WEB_APP_URL = process.env.WEB_APP_URL || "";
 const PUBLIC_URL = process.env.PUBLIC_URL || "";
 const VIDEO_BOT_USERNAME = process.env.VIDEO_BOT_USERNAME || "";
 const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || "";
+
+const MONETAG_POSTBACK_SECRET =
+  process.env.MONETAG_POSTBACK_SECRET || "";
+
+const MONETAG_ZONE_ID = "12187766";
+const REWARD_SESSION_MAX_AGE = 48 * 60 * 60 * 1000;
 
 let db;
 let firebaseReady = false;
@@ -37,8 +44,9 @@ const DEFAULT_SETTINGS = {
   reward: {
     enabled: true,
     adsRequired: 50,
-    rewardAmount: 1,
-    rewardType: "credit"
+    unlockUrl: "",
+    unlockMessage:
+      "৫০টি বিজ্ঞাপন সম্পন্ন করে তোমার Reward Unlock করো!"
   },
 
   referral: {
@@ -48,7 +56,7 @@ const DEFAULT_SETTINGS = {
 
   ads: {
     activeNetwork: "monetag",
-    monetagZoneId: "",
+    monetagZoneId: MONETAG_ZONE_ID,
     gigapubZoneId: "",
     adsgramBlockId: "57820",
     adsPerVideo: 2
@@ -61,10 +69,13 @@ const DEFAULT_SETTINGS = {
   maintenanceMode: false
 };
 
+/* Firebase */
+
 function initializeFirebase() {
   if (firebaseReady) return;
 
-  const serviceAccountJSON = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  const serviceAccountJSON =
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
   if (!serviceAccountJSON || !DATABASE_URL) {
     console.error("Firebase environment variables missing");
@@ -89,7 +100,10 @@ function initializeFirebase() {
 
     console.log("Firebase connected successfully");
   } catch (error) {
-    console.error("Firebase initialization failed:", error.message);
+    console.error(
+      "Firebase initialization failed:",
+      error.message
+    );
   }
 }
 
@@ -106,18 +120,27 @@ function requireFirebase(req, res, next) {
   next();
 }
 
+function safeCompare(a, b) {
+  if (
+    typeof a !== "string" ||
+    typeof b !== "string"
+  ) {
+    return false;
+  }
+
+  const first = Buffer.from(a);
+  const second = Buffer.from(b);
+
+  return (
+    first.length === second.length &&
+    crypto.timingSafeEqual(first, second)
+  );
+}
+
 function requireAdmin(req, res, next) {
   const key = req.get("x-admin-key");
 
-  if (
-    !ADMIN_KEY ||
-    !key ||
-    key.length !== ADMIN_KEY.length ||
-    !crypto.timingSafeEqual(
-      Buffer.from(key),
-      Buffer.from(ADMIN_KEY)
-    )
-  ) {
+  if (!ADMIN_KEY || !safeCompare(key, ADMIN_KEY)) {
     return res.status(401).json({
       success: false,
       error: "Unauthorized"
@@ -126,6 +149,8 @@ function requireAdmin(req, res, next) {
 
   next();
 }
+
+/* Telegram authentication */
 
 function verifyTelegramInitData(initData) {
   if (!BOT_TOKEN || !initData) return null;
@@ -153,13 +178,7 @@ function verifyTelegramInitData(initData) {
       .update(dataCheckString)
       .digest("hex");
 
-    const a = Buffer.from(calculatedHash, "hex");
-    const b = Buffer.from(hash, "hex");
-
-    if (
-      a.length !== b.length ||
-      !crypto.timingSafeEqual(a, b)
-    ) {
+    if (!safeCompare(calculatedHash, hash)) {
       return null;
     }
 
@@ -178,6 +197,23 @@ function verifyTelegramInitData(initData) {
     return null;
   }
 }
+
+function requireTelegramUser(req, res, next) {
+  const initData = req.get("x-telegram-init-data");
+  const user = verifyTelegramInitData(initData);
+
+  if (!user || !user.id) {
+    return res.status(401).json({
+      success: false,
+      error: "Invalid Telegram session"
+    });
+  }
+
+  req.telegramUser = user;
+  next();
+}
+
+/* Telegram API */
 
 async function telegramRequest(method, body) {
   if (!BOT_TOKEN) {
@@ -245,10 +281,7 @@ async function saveTelegramUser(user, startParam = "") {
 
     isPremium: !!user.is_premium,
 
-    joinedAt:
-      oldUser.joinedAt ||
-      Date.now(),
-
+    joinedAt: oldUser.joinedAt || Date.now(),
     lastActive: Date.now(),
 
     startParam:
@@ -466,68 +499,6 @@ async function processReferral(
   };
 }
 
-/* Notify users about new video */
-
-async function notifyAllUsers(video) {
-  const snapshot = await db.ref("users").once("value");
-  const users = snapshot.val() || {};
-
-  const botUsername = VIDEO_BOT_USERNAME.replace(/^@/, "");
-
-  const deepLink = botUsername
-    ? `https://t.me/${botUsername}?start=v_${video.id}`
-    : WEB_APP_URL;
-
-  const message =
-    `🎬 নতুন ভিডিও যোগ করা হয়েছে!\n\n` +
-    `📌 ${video.title}\n\n` +
-    `ভিডিও দেখতে নিচের বাটনে ক্লিক করুন।`;
-
-  const ids = Object.keys(users);
-
-  for (let i = 0; i < ids.length; i += 20) {
-    const batch = ids.slice(i, i + 20);
-
-    await Promise.allSettled(
-      batch.map(async id => {
-        try {
-          const buttons = deepLink
-            ? [[
-                {
-                  text: "▶️ ভিডিও দেখুন",
-                  url: deepLink
-                }
-              ]]
-            : [];
-
-          await telegramRequest("sendMessage", {
-            chat_id: id,
-            text: message,
-
-            reply_markup: buttons.length
-              ? {
-                  inline_keyboard: buttons
-                }
-              : undefined
-          });
-        } catch (error) {
-          if (
-            /blocked|chat not found|deactivated/i.test(
-              error.message
-            )
-          ) {
-            await db.ref(`users/${id}`).update({
-              blocked: true
-            });
-          }
-        }
-      })
-    );
-  }
-
-  return ids.length;
-}
-
 /* Merge settings */
 
 function mergeSettings(saved = {}) {
@@ -552,13 +523,55 @@ function mergeSettings(saved = {}) {
 
     ads: {
       ...DEFAULT_SETTINGS.ads,
-      ...(saved.ads || {})
+      ...(saved.ads || {}),
+      monetagZoneId: MONETAG_ZONE_ID
     },
 
     pagination: {
       ...DEFAULT_SETTINGS.pagination,
       ...(saved.pagination || {})
     }
+  };
+}
+
+function getRewardProgress(userData = {}) {
+  const progress = userData.rewardProgress || {};
+
+  return {
+    completed: Math.max(
+      0,
+      Number(progress.completed) || 0
+    ),
+    events: progress.events || {}
+  };
+}
+
+function getRewardStatus(settings, userData = {}) {
+  const reward = settings.reward;
+  const progress = getRewardProgress(userData);
+
+  const required = Math.max(
+    1,
+    Math.min(1000, Number(reward.adsRequired) || 50)
+  );
+
+  const enabled = reward.enabled === true;
+
+  const unlocked =
+    enabled &&
+    !!reward.unlockUrl &&
+    progress.completed >= required;
+
+  return {
+    success: true,
+    enabled,
+    completed: progress.completed,
+    required,
+    unlocked,
+    unlockMessage: reward.unlockMessage || "",
+    ...(unlocked
+      ? { unlockUrl: reward.unlockUrl }
+      : {})
   };
 }
 
@@ -577,6 +590,38 @@ app.get("/health", (req, res) => {
 app.get(
   "/api/settings",
   requireFirebase,
+  async (req, res) => {
+    try {
+      const snapshot = await db
+        .ref("settings")
+        .once("value");
+
+      const settings = mergeSettings(
+        snapshot.val() || {}
+      );
+
+      // Never expose the private unlock URL publicly.
+      settings.reward.unlockUrl = "";
+
+      res.json({
+        success: true,
+        settings
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+);
+
+/* Private admin settings */
+
+app.get(
+  "/api/admin/settings",
+  requireFirebase,
+  requireAdmin,
   async (req, res) => {
     try {
       const snapshot = await db
@@ -669,11 +714,7 @@ app.get(
 
       res.json({
         success: true,
-
-        videos: videos.slice(
-          start,
-          start + perPage
-        ),
+        videos: videos.slice(start, start + perPage),
 
         pagination: {
           page,
@@ -698,21 +739,11 @@ app.get(
 app.get(
   "/api/me",
   requireFirebase,
+  requireTelegramUser,
   async (req, res) => {
-    const initData = req.get(
-      "x-telegram-init-data"
-    );
-
-    const user = verifyTelegramInitData(initData);
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid Telegram session"
-      });
-    }
-
     try {
+      const user = req.telegramUser;
+
       await saveTelegramUser(user);
 
       const snapshot = await db
@@ -737,6 +768,253 @@ app.get(
         success: false,
         error: error.message
       });
+    }
+  }
+);
+
+/* Create a Monetag rewarded-ad session */
+
+app.post(
+  "/api/reward/session",
+  requireFirebase,
+  requireTelegramUser,
+  async (req, res) => {
+    try {
+      const user = req.telegramUser;
+
+      await saveTelegramUser(user);
+
+      const [settingsSnap, userSnap] = await Promise.all([
+        db.ref("settings").once("value"),
+        db.ref(`users/${user.id}`).once("value")
+      ]);
+
+      const settings = mergeSettings(
+        settingsSnap.val() || {}
+      );
+
+      const userData = userSnap.val() || {};
+      const reward = settings.reward;
+      const status = getRewardStatus(settings, userData);
+
+      if (!reward.enabled) {
+        return res.status(403).json({
+          success: false,
+          error: "Reward system is disabled"
+        });
+      }
+
+      if (!reward.unlockUrl) {
+        return res.status(400).json({
+          success: false,
+          error: "Unlock URL is not configured"
+        });
+      }
+
+      if (status.unlocked) {
+        return res.json({
+          ...status,
+          ymid: null
+        });
+      }
+
+      const ymid = crypto.randomBytes(24).toString("hex");
+      const now = Date.now();
+
+      await db.ref(`monetagSessions/${ymid}`).set({
+        ymid,
+        userId: String(user.id),
+        zoneId: MONETAG_ZONE_ID,
+        status: "pending",
+        createdAt: now
+      });
+
+      res.json({
+        success: true,
+        ymid,
+        zoneId: MONETAG_ZONE_ID
+      });
+    } catch (error) {
+      console.error("Reward session error:", error.message);
+
+      res.status(500).json({
+        success: false,
+        error: "Could not create reward session"
+      });
+    }
+  }
+);
+
+/* Get the logged-in user's reward progress */
+
+app.get(
+  "/api/reward/status",
+  requireFirebase,
+  requireTelegramUser,
+  async (req, res) => {
+    try {
+      const user = req.telegramUser;
+
+      await saveTelegramUser(user);
+
+      const [settingsSnap, userSnap] = await Promise.all([
+        db.ref("settings").once("value"),
+        db.ref(`users/${user.id}`).once("value")
+      ]);
+
+      const settings = mergeSettings(
+        settingsSnap.val() || {}
+      );
+
+      const userData = userSnap.val() || {};
+
+      res.json(
+        getRewardStatus(settings, userData)
+      );
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+);
+
+/* Monetag server-to-server postback */
+
+app.get(
+  "/api/monetag/postback",
+  requireFirebase,
+  async (req, res) => {
+    try {
+      if (!MONETAG_POSTBACK_SECRET) {
+        console.error(
+          "MONETAG_POSTBACK_SECRET is not configured"
+        );
+
+        return res.sendStatus(503);
+      }
+
+      const suppliedSecret = String(
+        req.query.secret || ""
+      );
+
+      if (
+        !safeCompare(
+          suppliedSecret,
+          MONETAG_POSTBACK_SECRET
+        )
+      ) {
+        return res.sendStatus(403);
+      }
+
+      const ymid = String(req.query.ymid || "");
+      const zoneId = String(req.query.zone_id || "");
+      const eventType = String(
+        req.query.event_type || ""
+      );
+      const rewardEventType = String(
+        req.query.reward_event_type || ""
+      );
+
+      if (!/^[a-f0-9]{48}$/i.test(ymid)) {
+        return res.status(400).send("Invalid ymid");
+      }
+
+      if (zoneId !== MONETAG_ZONE_ID) {
+        return res.status(400).send("Invalid zone");
+      }
+
+      // Only a valued impression earns progress.
+      // Clicks, ordinary impressions and non-valued events do not.
+      if (
+        eventType !== "impression" ||
+        rewardEventType !== "valued"
+      ) {
+        return res.status(200).send("Event ignored");
+      }
+
+      const sessionRef = db.ref(
+        `monetagSessions/${ymid}`
+      );
+
+      const sessionSnap = await sessionRef.once("value");
+
+      if (!sessionSnap.exists()) {
+        return res.status(404).send("Session not found");
+      }
+
+      const session = sessionSnap.val() || {};
+
+      if (
+        String(session.zoneId) !== MONETAG_ZONE_ID ||
+        !session.userId
+      ) {
+        return res.status(400).send("Invalid session");
+      }
+
+      const createdAt = Number(session.createdAt) || 0;
+
+      if (
+        !createdAt ||
+        Date.now() - createdAt > REWARD_SESSION_MAX_AGE ||
+        createdAt > Date.now() + 60000
+      ) {
+        return res.status(410).send("Session expired");
+      }
+
+      const userId = String(session.userId);
+      const progressRef = db.ref(
+        `users/${userId}/rewardProgress`
+      );
+
+      // The event marker and counter are updated in one
+      // Firebase transaction. This prevents duplicate rewards.
+      const transactionResult = await progressRef.transaction(
+        current => {
+          current = current || {};
+
+          current.completed =
+            Math.max(0, Number(current.completed) || 0);
+
+          current.events = current.events || {};
+
+          if (current.events[ymid]) {
+            return current;
+          }
+
+          current.events[ymid] = true;
+          current.completed += 1;
+          current.updatedAt = Date.now();
+
+          return current;
+        }
+      );
+
+      if (!transactionResult.committed) {
+        return res.status(500).send("Could not update progress");
+      }
+
+      await sessionRef.update({
+        status: "credited",
+        creditedAt: Date.now()
+      });
+
+      const finalProgress =
+        transactionResult.snapshot.val() || {};
+
+      console.log(
+        `Monetag reward credited: user=${userId}, completed=${finalProgress.completed}`
+      );
+
+      return res.status(200).send("Reward processed");
+    } catch (error) {
+      console.error(
+        "Monetag postback error:",
+        error.message
+      );
+
+      return res.status(500).send("Postback error");
     }
   }
 );
@@ -812,6 +1090,84 @@ app.put(
         }
       }
 
+      // Validate reward settings.
+      if (updates.reward) {
+        const currentSnap = await db
+          .ref("settings/reward")
+          .once("value");
+
+        const current = {
+          ...DEFAULT_SETTINGS.reward,
+          ...(currentSnap.val() || {})
+        };
+
+        const incoming = updates.reward;
+
+        const adsRequired =
+          incoming.adsRequired !== undefined
+            ? Number(incoming.adsRequired)
+            : Number(current.adsRequired);
+
+        const unlockMessage =
+          incoming.unlockMessage !== undefined
+            ? String(incoming.unlockMessage)
+            : String(current.unlockMessage || "");
+
+        const unlockUrl =
+          incoming.unlockUrl !== undefined
+            ? String(incoming.unlockUrl).trim()
+            : String(current.unlockUrl || "");
+
+        if (
+          !Number.isInteger(adsRequired) ||
+          adsRequired < 1 ||
+          adsRequired > 1000
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: "Required ads must be between 1 and 1000"
+          });
+        }
+
+        if (unlockMessage.length > 500) {
+          return res.status(400).json({
+            success: false,
+            error: "Unlock message maximum is 500 characters"
+          });
+        }
+
+        if (unlockUrl) {
+          try {
+            const parsed = new URL(unlockUrl);
+
+            if (
+              parsed.protocol !== "https:" &&
+              parsed.protocol !== "http:"
+            ) {
+              throw new Error("Invalid protocol");
+            }
+          } catch {
+            return res.status(400).json({
+              success: false,
+              error: "Unlock URL must be a valid HTTP or HTTPS URL"
+            });
+          }
+        }
+
+        updates.reward = {
+          ...current,
+          ...incoming,
+          enabled:
+            incoming.enabled !== undefined
+              ? !!incoming.enabled
+              : !!current.enabled,
+          adsRequired,
+          unlockUrl,
+          unlockMessage
+        };
+      }
+
+      // Validate referral settings.
       if (updates.referral) {
         const currentSnap = await db
           .ref("settings/referral")
@@ -844,13 +1200,25 @@ app.put(
         updates.referral = {
           ...current,
           ...incoming,
-
           enabled:
             incoming.enabled !== undefined
               ? !!incoming.enabled
               : !!current.enabled,
-
           rewardPerReferral: reward
+        };
+      }
+
+      // Keep the Monetag zone synchronized with the SDK.
+      if (updates.ads) {
+        const currentSnap = await db
+          .ref("settings/ads")
+          .once("value");
+
+        updates.ads = {
+          ...DEFAULT_SETTINGS.ads,
+          ...(currentSnap.val() || {}),
+          ...updates.ads,
+          monetagZoneId: MONETAG_ZONE_ID
         };
       }
 
@@ -951,10 +1319,7 @@ app.post(
 
         adsRequired: Math.max(
           1,
-          Math.min(
-            100,
-            Number(adsRequired) || 2
-          )
+          Math.min(100, Number(adsRequired) || 2)
         ),
 
         enabled: true,
@@ -993,6 +1358,65 @@ app.post(
   }
 );
 
+/* Notify users about new video */
+
+async function notifyAllUsers(video) {
+  const snapshot = await db.ref("users").once("value");
+  const users = snapshot.val() || {};
+
+  const botUsername = VIDEO_BOT_USERNAME.replace(/^@/, "");
+
+  const deepLink = botUsername
+    ? `https://t.me/${botUsername}?start=v_${video.id}`
+    : WEB_APP_URL;
+
+  const message =
+    `🎬 নতুন ভিডিও যোগ করা হয়েছে!\n\n` +
+    `📌 ${video.title}\n\n` +
+    `ভিডিও দেখতে নিচের বাটনে ক্লিক করুন।`;
+
+  const ids = Object.keys(users);
+
+  for (let i = 0; i < ids.length; i += 20) {
+    const batch = ids.slice(i, i + 20);
+
+    await Promise.allSettled(
+      batch.map(async id => {
+        try {
+          const buttons = deepLink
+            ? [[
+                {
+                  text: "▶️ ভিডিও দেখুন",
+                  url: deepLink
+                }
+              ]]
+            : [];
+
+          await telegramRequest("sendMessage", {
+            chat_id: id,
+            text: message,
+            reply_markup: buttons.length
+              ? { inline_keyboard: buttons }
+              : undefined
+          });
+        } catch (error) {
+          if (
+            /blocked|chat not found|deactivated/i.test(
+              error.message
+            )
+          ) {
+            await db.ref(`users/${id}`).update({
+              blocked: true
+            });
+          }
+        }
+      })
+    );
+  }
+
+  return ids.length;
+}
+
 /* Admin edit video */
 
 app.put(
@@ -1001,10 +1425,7 @@ app.put(
   requireAdmin,
   async (req, res) => {
     try {
-      const ref = db.ref(
-        `videos/${req.params.id}`
-      );
-
+      const ref = db.ref(`videos/${req.params.id}`);
       const snapshot = await ref.once("value");
 
       if (!snapshot.exists()) {
@@ -1037,10 +1458,7 @@ app.put(
       if (updates.adsRequired !== undefined) {
         updates.adsRequired = Math.max(
           1,
-          Math.min(
-            100,
-            Number(updates.adsRequired) || 1
-          )
+          Math.min(100, Number(updates.adsRequired) || 1)
         );
       }
 
@@ -1067,9 +1485,7 @@ app.delete(
   requireAdmin,
   async (req, res) => {
     try {
-      await db
-        .ref(`videos/${req.params.id}`)
-        .remove();
+      await db.ref(`videos/${req.params.id}`).remove();
 
       res.json({
         success: true,
@@ -1096,10 +1512,7 @@ app.post(
         req.body.message || ""
       ).trim();
 
-      if (
-        !message ||
-        message.length > 4000
-      ) {
+      if (!message || message.length > 4000) {
         return res.status(400).json({
           success: false,
           error:
@@ -1161,9 +1574,8 @@ app.post(
   async (req, res) => {
     if (
       WEBHOOK_SECRET &&
-      req.get(
-        "x-telegram-bot-api-secret-token"
-      ) !== WEBHOOK_SECRET
+      req.get("x-telegram-bot-api-secret-token") !==
+        WEBHOOK_SECRET
     ) {
       return res.sendStatus(403);
     }
@@ -1185,8 +1597,7 @@ app.post(
       const text = message.text || "";
 
       if (text.startsWith("/start")) {
-        const payload =
-          text.split(/\s+/)[1] || "";
+        const payload = text.split(/\s+/)[1] || "";
 
         const saveResult = await saveTelegramUser(
           message.from,
@@ -1202,7 +1613,6 @@ app.post(
         if (referralResult.success) {
           await telegramRequest("sendMessage", {
             chat_id: message.chat.id,
-
             text:
               `🎉 অভিনন্দন!\n\n` +
               `তোমার Referral থেকে ` +
@@ -1222,9 +1632,7 @@ app.post(
               inline_keyboard: [[
                 {
                   text: "🎬 Open Premium Video",
-                  web_app: {
-                    url: WEB_APP_URL
-                  }
+                  web_app: { url: WEB_APP_URL }
                 }
               ]]
             }
@@ -1256,15 +1664,10 @@ app.post(
 /* Setup Telegram webhook */
 
 async function setupWebhook() {
-  if (
-    !BOT_TOKEN ||
-    !PUBLIC_URL ||
-    !WEBHOOK_SECRET
-  ) {
+  if (!BOT_TOKEN || !PUBLIC_URL || !WEBHOOK_SECRET) {
     console.log(
       "Webhook setup skipped: environment variables missing"
     );
-
     return;
   }
 
@@ -1279,9 +1682,7 @@ async function setupWebhook() {
       allowed_updates: ["message"]
     });
 
-    console.log(
-      "Telegram webhook configured"
-    );
+    console.log("Telegram webhook configured");
   } catch (error) {
     console.error(
       "Webhook setup failed:",
@@ -1293,9 +1694,7 @@ async function setupWebhook() {
 /* Home route */
 
 app.get("/", (req, res) => {
-  res.send(
-    "Premium Video Backend is running"
-  );
+  res.send("Premium Video Backend is running");
 });
 
 /* Start server */
