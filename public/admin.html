@@ -1,5 +1,6 @@
+
 <!DOCTYPE html>
-<html lang="en">
+<html lang="bn">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -20,6 +21,7 @@ input,textarea,select{
  background:#0e0e0e;border:1px solid #443333;
  color:white;border-radius:8px;font-size:14px
 }
+input:disabled{opacity:.7;color:#aaa}
 textarea{min-height:85px;resize:vertical}
 label{font-size:12px;color:#c9baba}
 button{
@@ -102,7 +104,7 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 
  <hr>
 
- <!-- REWARD UNLOCK SETTINGS -->
+ <!-- REWARD SETTINGS -->
 
  <h3>🎁 50 Ads Unlock System</h3>
 
@@ -119,11 +121,12 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
  <input id="unlockUrl" type="url" placeholder="https://example.com/unlock">
 
  <label>Unlock Section Message</label>
- <textarea id="unlockMessage" placeholder="Write an attractive message for users..."></textarea>
+ <textarea id="unlockMessage" maxlength="500" placeholder="Write an attractive message for users..."></textarea>
 
  <p class="note">
  এই লিংকটি প্রত্যেক ব্যবহারকারীর জন্য আলাদাভাবে আনলক হবে।
- বিজ্ঞাপন সম্পন্ন না হওয়া পর্যন্ত ব্যবহারকারী লিংক দেখতে পাবে না।
+ প্রয়োজনীয় সংখ্যক Rewarded Ads সম্পন্ন না হওয়া পর্যন্ত ব্যবহারকারী লিংক দেখতে পাবে না।
+ Unlock URL শুধু Admin Panel থেকে পরিবর্তন করা যাবে।
  </p>
 
  <hr>
@@ -142,8 +145,8 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
  </select>
 
  <p class="note">
- নতুন ব্যবহারকারী সফলভাবে Referral Link দিয়ে প্রথমবার যোগ হলে
- Referrer-এর Credit বাড়বে।
+ নতুন ব্যবহারকারী সফলভাবে Referral Link দিয়ে প্রথমবার যোগ হলে
+ Referrer-এর Credit বাড়বে।
  </p>
 
  <hr>
@@ -162,7 +165,8 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
  <input id="adexiumWidget" placeholder="Your Adexium Widget ID">
 
  <p class="note">
- Adexium সাধারণ বিজ্ঞাপনের জন্য। Rewarded Ads হিসেবে ব্যবহার করা হবে না।
+ Adexium সাধারণ বিজ্ঞাপনের জন্য। এটি ৫০টি Rewarded Ads-এর
+ গণনায় ব্যবহার করা হবে না।
  </p>
 
  <label>Other Advertising Network</label>
@@ -172,8 +176,13 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
   <option value="adsgram">AdsGram</option>
  </select>
 
- <label>Monetag Zone ID</label>
- <input id="monetagZone" placeholder="Monetag Zone ID">
+ <label>Monetag Rewarded Ads Zone ID</label>
+ <input id="monetagZone" value="12187766" disabled>
+
+ <p class="note">
+ Rewarded Ads-এর জন্য নির্দিষ্ট Monetag Zone ID: 12187766।
+ এটি পরিবর্তন করা যাবে না, কারণ Server ও SDK একই Zone ব্যবহার করে।
+ </p>
 
  <label>GigaPub Zone ID</label>
  <input id="gigapubZone" placeholder="GigaPub Zone ID">
@@ -267,6 +276,8 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 const API = "";
 let key = sessionStorage.getItem("pv_admin_key") || "";
 
+const MONETAG_ZONE_ID = "12187766";
+
 function authHeaders(){
  return {
   "Content-Type":"application/json",
@@ -350,11 +361,14 @@ async function loadDashboard(){
   d.totalCredits || 0;
 }
 
-async function loadSettings(){
- const response = await fetch("/api/settings");
- const d = await response.json();
+/* Load private settings using authenticated Admin API */
 
- if(!d.success) return;
+async function loadSettings(){
+ const d = await api("/api/admin/settings");
+
+ if(!d.success) {
+  throw new Error("Could not load settings");
+ }
 
  const s = d.settings || {};
 
@@ -377,7 +391,8 @@ async function loadSettings(){
   s.reward?.unlockUrl || "";
 
  document.getElementById("unlockMessage").value =
-  s.reward?.unlockMessage || "";
+  s.reward?.unlockMessage ||
+  "৫০টি বিজ্ঞাপন সম্পন্ন করে তোমার Reward Unlock করো!";
 
  document.getElementById("referralReward").value =
   s.referral?.rewardPerReferral ?? 1;
@@ -395,7 +410,7 @@ async function loadSettings(){
   s.ads?.activeNetwork || "monetag";
 
  document.getElementById("monetagZone").value =
-  s.ads?.monetagZoneId || "";
+  MONETAG_ZONE_ID;
 
  document.getElementById("gigapubZone").value =
   s.ads?.gigapubZoneId || "";
@@ -426,24 +441,55 @@ async function saveSettings(){
  const unlockUrl =
   document.getElementById("unlockUrl").value.trim();
 
- if(!Number.isInteger(requiredAds) || requiredAds < 1 || requiredAds > 1000){
+ const unlockMessage =
+  document.getElementById("unlockMessage").value.trim();
+
+ if(
+  !Number.isInteger(requiredAds) ||
+  requiredAds < 1 ||
+  requiredAds > 1000
+ ){
   alert("Required Ads must be between 1 and 1000");
   return;
  }
 
- if(!Number.isFinite(referralReward) || referralReward < 0){
+ if(
+  !Number.isFinite(referralReward) ||
+  referralReward < 0 ||
+  referralReward > 1000000
+ ){
   alert("Invalid referral reward");
   return;
  }
 
- if(!Number.isInteger(defaultAds) || defaultAds < 1 || defaultAds > 100){
+ if(
+  !Number.isInteger(defaultAds) ||
+  defaultAds < 1 ||
+  defaultAds > 100
+ ){
   alert("Default Ads must be between 1 and 100");
   return;
  }
 
- if(unlockUrl && !/^https?:\/\//i.test(unlockUrl)){
-  alert("Unlock Link must start with http:// or https://");
+ if(unlockMessage.length > 500){
+  alert("Unlock Message maximum 500 characters");
   return;
+ }
+
+ if(unlockUrl){
+  try{
+   const parsed = new URL(unlockUrl);
+
+   if(
+    parsed.protocol !== "https:" &&
+    parsed.protocol !== "http:"
+   ){
+    throw new Error("Invalid URL");
+   }
+  }catch(e){
+   alert("Please enter a valid Unlock URL");
+   return;
+  }
  }
 
  try{
@@ -467,11 +513,8 @@ async function saveSettings(){
       document.getElementById("unlockEnabled").value === "true",
 
      adsRequired:requiredAds,
-
      unlockUrl,
-
-     unlockMessage:
-      document.getElementById("unlockMessage").value.trim()
+     unlockMessage
     },
 
     referral:{
@@ -491,8 +534,7 @@ async function saveSettings(){
      activeNetwork:
       document.getElementById("adNetwork").value,
 
-     monetagZoneId:
-      document.getElementById("monetagZone").value.trim(),
+     monetagZoneId:MONETAG_ZONE_ID,
 
      gigapubZoneId:
       document.getElementById("gigapubZone").value.trim(),
@@ -504,6 +546,8 @@ async function saveSettings(){
     }
    })
   });
+
+  await loadSettings();
 
   alert("Settings saved successfully!");
 
@@ -539,6 +583,14 @@ async function saveCategories(){
 
    if(!id || !name){
     throw new Error("Invalid category");
+   }
+
+   if(id === "all"){
+    throw new Error("The category ID 'all' is reserved");
+   }
+
+   if(categories.some(c => c.id === id)){
+    throw new Error("Duplicate category ID: " + id);
    }
 
    categories.push({
@@ -681,6 +733,15 @@ async function saveVideo(){
   return;
  }
 
+ if(
+  !Number.isInteger(body.adsRequired) ||
+  body.adsRequired < 1 ||
+  body.adsRequired > 100
+ ){
+  alert("Ads Required must be between 1 and 100");
+  return;
+ }
+
  try{
   await api(
    id
@@ -733,6 +794,11 @@ async function sendBroadcast(){
   return;
  }
 
+ if(message.length > 4000){
+  alert("Maximum 4000 characters");
+  return;
+ }
+
  if(!confirm("Send this message to all bot users?")){
   return;
  }
@@ -753,6 +819,8 @@ async function sendBroadcast(){
   box.textContent = e.message;
  }
 }
+
+/* Restore admin session */
 
 if(key){
  document.getElementById("adminKey").value = key;
