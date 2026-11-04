@@ -8,12 +8,7 @@
 <title>Premium Video</title>
 
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-
-<!-- Monetag Rewarded Ads -->
-<script src="https://libtl.com/sdk.js" data-zone="12187766" data-sdk="show_12187766"></script>
-
-<!-- Adexium Interstitial Ads -->
-<script type="text/javascript" src="https://cdn.adexium.tech/assets/js/tg-ads-co-widget.min.js"></script>
+<script src="https://cdn.adexium.tech/assets/js/tg-ads-co-widget.min.js"></script>
 
 <style>
 :root{
@@ -86,7 +81,6 @@ button{font-family:inherit;cursor:pointer}
 
 <body>
 <div class="container">
-
 <header class="header">
   <div class="brand">
     <div class="logo">▶</div>
@@ -110,7 +104,6 @@ button{font-family:inherit;cursor:pointer}
 </div>
 
 <div class="section-title">🎁 Special Reward</div>
-
 <div class="reward">
   <div class="reward-top">
     <div class="reward-icon">🎁</div>
@@ -119,18 +112,12 @@ button{font-family:inherit;cursor:pointer}
       <p id="rewardDescription">Watch ads to unlock your reward URL.</p>
     </div>
   </div>
-
   <div class="reward-progress"><div id="rewardBar"></div></div>
-
   <div class="reward-bottom">
     <span id="rewardCount">0 / 50 Ads</span>
     <span id="rewardPercent">0%</span>
   </div>
-
-  <button class="reward-action" id="rewardButton" onclick="watchRewardAd()">
-    ▶ Watch Ads
-  </button>
-
+  <button class="reward-action" id="rewardButton" onclick="watchRewardAd()">▶ Watch Ads</button>
   <div class="reward-result" id="rewardResult">
     <p id="rewardMessage">তোমার Reward Link প্রস্তুত!</p>
     <button class="open-reward" onclick="openRewardUrl()">🔗 Open Unlock URL</button>
@@ -144,16 +131,13 @@ button{font-family:inherit;cursor:pointer}
 </div>
 
 <div class="section-title">🎬 Latest Videos</div>
-<div id="videoList">
-  <div class="loading">Loading videos...</div>
-</div>
+<div id="videoList"><div class="loading">Loading videos...</div></div>
 
 <div class="pagination">
   <button class="page-btn" id="prevBtn" onclick="changePage(-1)" disabled>← Previous</button>
   <span class="page-number" id="pageNumber">1 / 1</span>
   <button class="page-btn" id="nextBtn" onclick="changePage(1)" disabled>Next →</button>
 </div>
-
 <div class="footer">© 2026 Premium Video • All Rights Reserved</div>
 </div>
 
@@ -167,65 +151,27 @@ button{font-family:inherit;cursor:pointer}
 </div>
 
 <script>
-const tg = window.Telegram?.WebApp;
+const tg=window.Telegram?.WebApp;
+if(tg){tg.ready();tg.expand()}
 
-if(tg){
-  tg.ready();
-  tg.expand();
-}
+const API="";
+const BOT_USERNAME="viralbox9_bot";
+const ADEXIUM_DEFAULT_WID="d7ac754e-70bc-484b-8346-75eb7b5fa3b6";
 
-const API = "";
-const BOT_USERNAME = "viralbox9_bot";
+let currentPage=1,totalPages=1,currentCategory="all";
+let settings={},videos=[],rewardUrl="",rewardBusy=false,referralUrl="";
+let adexiumAds=null,adexiumStarted=false;
+let manualAdBusy=false;
+let rewardTaskId=null;
+let rewardAdReceived=false;
+let rewardAdCompleted=false;
+let rewardResolve=null;
+let rewardTimeout=null;
+let videoAdResolve=null;
 
-let currentPage = 1;
-let totalPages = 1;
-let currentCategory = "all";
-let settings = {};
-let videos = [];
-let rewardUrl = "";
-let rewardBusy = false;
-let referralUrl = "";
-
-/* Adexium */
-
-let adexiumAds = null;
-let adexiumStarted = false;
-
-function initAdexium(){
-  if(adexiumStarted) return;
-
-  const ads = settings.ads || {};
-
-  if(ads.adexiumEnabled === false) return;
-
-  const widgetId =
-    ads.adexiumWidgetId ||
-    "d7ac754e-70bc-484b-8346-75eb7b5fa3b6";
-
-  if(typeof window.AdexiumWidget !== "function"){
-    console.warn("Adexium SDK not loaded");
-    return;
-  }
-
-  try{
-    adexiumAds = new window.AdexiumWidget({
-      wid: widgetId,
-      adFormat: "interstitial",
-      debug: false
-    });
-
-    adexiumAds.autoMode();
-    adexiumStarted = true;
-
-    console.log("Adexium interstitial initialized");
-  }catch(error){
-    console.error("Adexium initialization error:",error);
-  }
-}
-
-const headers = {
+const headers={
   "Content-Type":"application/json",
-  "x-telegram-init-data":tg?.initData || ""
+  "x-telegram-init-data":tg?.initData||""
 };
 
 function showModal(title,text,copyButton=false){
@@ -234,123 +180,148 @@ function showModal(title,text,copyButton=false){
   document.getElementById("modalCopy").style.display=copyButton?"block":"none";
   document.getElementById("modalBg").style.display="flex";
 }
-
-function hideModal(){
-  document.getElementById("modalBg").style.display="none";
-}
-
-function closeModal(e){
-  if(e.target.id==="modalBg")hideModal();
-}
+function hideModal(){document.getElementById("modalBg").style.display="none"}
+function closeModal(e){if(e.target.id==="modalBg")hideModal()}
 
 async function copyText(text){
   try{
-    if(navigator.clipboard && window.isSecureContext){
+    if(navigator.clipboard&&window.isSecureContext){
       await navigator.clipboard.writeText(text);
     }else{
       const area=document.createElement("textarea");
-      area.value=text;
-      area.style.position="fixed";
-      area.style.opacity="0";
-      document.body.appendChild(area);
-      area.select();
-      document.execCommand("copy");
-      area.remove();
+      area.value=text;area.style.position="fixed";area.style.opacity="0";
+      document.body.appendChild(area);area.select();
+      document.execCommand("copy");area.remove();
     }
     showModal("Copied Successfully","লিংকটি কপি হয়েছে।");
-  }catch(e){
-    showModal("Copy Failed","লিংক কপি করা যায়নি। আবার চেষ্টা করো।");
+  }catch(e){showModal("Copy Failed","লিংক কপি করা যায়নি। আবার চেষ্টা করো।")}
+}
+async function copyReferral(){if(referralUrl)await copyText(referralUrl)}
+
+function initAdexium(){
+  if(adexiumStarted||settings.ads?.adexiumEnabled===false)return;
+  if(typeof window.AdexiumWidget!=="function"){
+    console.warn("Adexium SDK not loaded");return;
   }
+  try{
+    adexiumAds=new window.AdexiumWidget({
+      wid:settings.ads?.adexiumWidgetId||ADEXIUM_DEFAULT_WID,
+      adFormat:"interstitial",
+      debug:false
+    });
+
+    adexiumAds.on("adReceived",ad=>{
+      if(rewardBusy){
+        rewardTaskId=ad?.id||null;
+        rewardAdReceived=!!rewardTaskId;
+        try{adexiumAds.displayAd(ad)}catch(e){console.error(e)}
+      }else if(videoAdResolve){
+        try{adexiumAds.displayAd(ad)}catch(e){console.error(e)}
+      }
+    });
+
+    adexiumAds.on("adPlaybackCompleted",()=>{
+      if(rewardBusy&&rewardAdReceived){
+        rewardAdCompleted=true;
+        if(rewardResolve)rewardResolve(true);
+      }else if(videoAdResolve){
+        const done=videoAdResolve;
+        videoAdResolve=null;
+        done(true);
+      }
+    });
+
+    adexiumAds.on("noAdFound",()=>{
+      if(rewardBusy&&rewardResolve)rewardResolve(false);
+      if(videoAdResolve){
+        const done=videoAdResolve;
+        videoAdResolve=null;
+        done(false);
+      }
+    });
+
+    adexiumAds.autoMode();
+    adexiumStarted=true;
+    console.log("Adexium initialized");
+  }catch(e){console.error("Adexium init error",e)}
 }
 
-async function copyReferral(){
-  if(referralUrl) await copyText(referralUrl);
+function requestManualAd(type){
+  return new Promise(resolve=>{
+    if(!adexiumAds||manualAdBusy){resolve(false);return}
+    manualAdBusy=true;
+    const finish=value=>{
+      if(type==="reward"){
+        rewardResolve=null;
+      }else{
+        videoAdResolve=null;
+      }
+      manualAdBusy=false;
+      resolve(value);
+    };
+
+    if(type==="reward")rewardResolve=finish;
+    else videoAdResolve=finish;
+
+    try{
+      adexiumAds.requestAd("interstitial");
+      setTimeout(()=>{
+        if(type==="reward"&&rewardResolve)finish(false);
+        if(type!=="reward"&&videoAdResolve)finish(false);
+      },45000);
+    }catch(e){
+      console.error("Ad request error",e);
+      finish(false);
+    }
+  });
 }
 
 async function loadSettings(){
   try{
     const res=await fetch(API+"/api/settings");
     const data=await res.json();
-
     if(!data.success)return;
-
-    settings=data.settings || {};
-
-    document.getElementById("appName").textContent=
-      settings.appName || "Premium Video";
-
-    const promo=settings.promotionalChannel || {};
-
-    document.getElementById("promoName").textContent=
-      promo.name || "Promotional Channel";
-
-    renderCategories();
-
-    const reward=settings.reward || {};
+    settings=data.settings||{};
+    document.getElementById("appName").textContent=settings.appName||"Premium Video";
+    document.getElementById("promoName").textContent=settings.promotionalChannel?.name||"Promotional Channel";
+    const reward=settings.reward||{};
     const required=Number(reward.adsRequired)||50;
-
-    document.getElementById("rewardHeading").textContent=
-      `${required} Ads Reward`;
-
+    document.getElementById("rewardHeading").textContent=`${required} Ads Reward`;
     document.getElementById("rewardDescription").textContent=
-      reward.unlockMessage ||
-      `Watch ${required} ads to unlock your reward URL.`;
-
-    // Start Adexium only after public settings are loaded.
+      reward.unlockMessage||`Watch ${required} ads to unlock your reward URL.`;
+    renderCategories();
     initAdexium();
-
-  }catch(e){
-    console.error("Settings error",e);
-  }
+  }catch(e){console.error("Settings error",e)}
 }
 
 function renderCategories(){
   const box=document.getElementById("categories");
-  const categories=(settings.categories || []).filter(c=>c.enabled!==false);
-
+  const categories=(settings.categories||[]).filter(c=>c.enabled!==false);
   box.innerHTML="";
-
   const all=document.createElement("button");
   all.className="cat"+(currentCategory==="all"?" active":"");
-  all.textContent="All Videos";
-  all.onclick=()=>selectCategory("all");
+  all.textContent="All Videos";all.onclick=()=>selectCategory("all");
   box.appendChild(all);
-
   categories.filter(c=>c.id!=="all").forEach(c=>{
     const btn=document.createElement("button");
     btn.className="cat"+(currentCategory===c.id?" active":"");
-    btn.textContent=c.name;
-    btn.onclick=()=>selectCategory(c.id);
+    btn.textContent=c.name;btn.onclick=()=>selectCategory(c.id);
     box.appendChild(btn);
   });
 }
-
 function selectCategory(id){
-  currentCategory=id;
-  currentPage=1;
-  renderCategories();
-  loadVideos();
+  currentCategory=id;currentPage=1;renderCategories();loadVideos();
 }
 
 async function loadVideos(){
   const list=document.getElementById("videoList");
   list.innerHTML='<div class="loading">Loading videos...</div>';
-
   try{
-    const url=API+"/api/videos?page="+currentPage+
-      "&category="+encodeURIComponent(currentCategory);
-
-    const res=await fetch(url);
-    const data=await res.json();
-
+    const url=API+"/api/videos?page="+currentPage+"&category="+encodeURIComponent(currentCategory);
+    const res=await fetch(url);const data=await res.json();
     if(!data.success)throw new Error("Unable to load videos");
-
-    videos=data.videos || [];
-    totalPages=data.pagination?.totalPages || 1;
-
-    renderVideos();
-    updatePagination(data.pagination);
-
+    videos=data.videos||[];totalPages=data.pagination?.totalPages||1;
+    renderVideos();updatePagination(data.pagination);
   }catch(e){
     list.innerHTML='<div class="empty">ভিডিও লোড করা যায়নি। আবার চেষ্টা করো।</div>';
     console.error(e);
@@ -358,327 +329,176 @@ async function loadVideos(){
 }
 
 function renderVideos(){
-  const list=document.getElementById("videoList");
-  list.innerHTML="";
-
+  const list=document.getElementById("videoList");list.innerHTML="";
   if(!videos.length){
-    list.innerHTML='<div class="empty">এই ক্যাটাগরিতে এখনো কোনো ভিডিও নেই।</div>';
-    return;
+    list.innerHTML='<div class="empty">এই ক্যাটাগরিতে এখনো কোনো ভিডিও নেই।</div>';return;
   }
-
   videos.forEach(video=>{
-    const card=document.createElement("div");
-    card.className="video-card";
-
+    const card=document.createElement("div");card.className="video-card";
     const img=document.createElement("img");
-    img.className="thumbnail";
-    img.src=video.thumbnail || "";
-    img.alt=video.title || "Video thumbnail";
-    img.loading="lazy";
+    img.className="thumbnail";img.src=video.thumbnail||"";
+    img.alt=video.title||"Video thumbnail";img.loading="lazy";
     img.onerror=()=>{img.style.display="none"};
-
-    const content=document.createElement("div");
-    content.className="video-content";
-
-    const title=document.createElement("h3");
-    title.className="video-title";
-    title.textContent=video.title || "Untitled Video";
-
-    const meta=document.createElement("div");
-    meta.className="video-meta";
-
-    const tag=document.createElement("span");
-    tag.className="tag";
+    const content=document.createElement("div");content.className="video-content";
+    const title=document.createElement("h3");title.className="video-title";
+    title.textContent=video.title||"Untitled Video";
+    const meta=document.createElement("div");meta.className="video-meta";
+    const tag=document.createElement("span");tag.className="tag";
     const category=(settings.categories||[]).find(c=>c.id===video.categoryId);
-    tag.textContent=category?.name || "Video";
-
-    const ads=document.createElement("span");
-    ads.textContent=(video.adsRequired || 2)+" Ads Required";
-
+    tag.textContent=category?.name||"Video";
+    const ads=document.createElement("span");ads.textContent=(video.adsRequired||2)+" Ads Required";
     meta.append(tag,ads);
-
-    const actions=document.createElement("div");
-    actions.className="video-actions";
-
+    const actions=document.createElement("div");actions.className="video-actions";
     const unlock=document.createElement("button");
-    unlock.className="unlock-btn";
-    unlock.textContent="🔓 Unlock Video";
+    unlock.className="unlock-btn";unlock.textContent="🔓 Unlock Video";
     unlock.onclick=()=>startUnlock(video.id);
-
     const watch=document.createElement("button");
-    watch.className="watch-btn";
-    watch.textContent="▶ ভিডিও দেখুন";
+    watch.className="watch-btn";watch.textContent="▶ ভিডিও দেখুন";
     watch.onclick=()=>openVideoBot(video.id);
-
-    actions.append(unlock,watch);
-    content.append(title,meta,actions);
-    card.append(img,content);
-    list.appendChild(card);
+    actions.append(unlock,watch);content.append(title,meta,actions);
+    card.append(img,content);list.appendChild(card);
   });
 }
 
 function updatePagination(p){
-  totalPages=p?.totalPages || 1;
-
-  document.getElementById("pageNumber").textContent=
-    `${currentPage} / ${totalPages}`;
-
+  totalPages=p?.totalPages||1;
+  document.getElementById("pageNumber").textContent=`${currentPage} / ${totalPages}`;
   document.getElementById("prevBtn").disabled=currentPage<=1;
   document.getElementById("nextBtn").disabled=currentPage>=totalPages;
 }
-
 function changePage(direction){
   const next=currentPage+direction;
-
-  if(next<1 || next>totalPages)return;
-
-  currentPage=next;
-  loadVideos();
-  window.scrollTo({top:0,behavior:"smooth"});
+  if(next<1||next>totalPages)return;
+  currentPage=next;loadVideos();window.scrollTo({top:0,behavior:"smooth"});
 }
-
 function joinChannel(){
   const url=settings.promotionalChannel?.url;
-
-  if(!url){
-    showModal("Promotional Channel","চ্যানেল লিংক এখনো যোগ করা হয়নি।");
-    return;
-  }
-
+  if(!url){showModal("Promotional Channel","চ্যানেল লিংক এখনো যোগ করা হয়নি।");return}
   openExternal(url);
 }
-
 function openReferral(){
   const user=tg?.initDataUnsafe?.user;
-
-  if(!user){
-    showModal("Referral","Referral Link তৈরি করতে Telegram Mini App থেকে প্রবেশ করো।");
-    return;
-  }
-
+  if(!user){showModal("Referral","Referral Link তৈরি করতে Telegram Mini App থেকে প্রবেশ করো।");return}
   referralUrl=`https://t.me/${BOT_USERNAME}?start=ref_${user.id}`;
-
-  showModal(
-    "Referral System",
-    "তোমার Referral Link:\n"+referralUrl+
-    "\n\nবন্ধুদের সঙ্গে লিংকটি শেয়ার করো। সফল Referral-এর Reward Admin Panel থেকে নিয়ন্ত্রণ করা হবে।",
-    true
-  );
+  showModal("Referral System","তোমার Referral Link:\n"+referralUrl+
+    "\n\nবন্ধুদের সঙ্গে লিংকটি শেয়ার করো। সফল Referral-এর Reward Admin Panel থেকে নিয়ন্ত্রণ করা হবে।",true);
 }
 
 function startUnlock(videoId){
-  showModal(
-    "Video Unlock",
-    "এই ভিডিওর বিজ্ঞাপন Unlock System এখনো Backend-এর সঙ্গে সংযুক্ত করা হয়নি। বিজ্ঞাপন সম্পন্ন না করে ভিডিও আনলক হবে না।"
-  );
+  showModal("Video Unlock","এই ভিডিওর Unlock System এখনো Backend-এর সঙ্গে সংযুক্ত করা হয়নি।");
 }
 
-/* Monetag Rewarded Ads */
+async function openVideoBot(videoId){
+  const url=`https://t.me/${BOT_USERNAME}?start=v_${encodeURIComponent(videoId)}`;
+  if(settings.ads?.adexiumEnabled!==false){
+    await requestManualAd("video");
+  }
+  openExternal(url);
+}
 
 function updateRewardUI(data){
   const completed=Number(data.completed)||0;
   const required=Math.max(1,Number(data.required)||50);
   const percent=Math.min(100,Math.floor(completed/required*100));
-
   document.getElementById("rewardBar").style.width=percent+"%";
-  document.getElementById("rewardCount").textContent=
-    `${completed} / ${required} Ads`;
-  document.getElementById("rewardPercent").textContent=
-    percent+"%";
-
+  document.getElementById("rewardCount").textContent=`${completed} / ${required} Ads`;
+  document.getElementById("rewardPercent").textContent=percent+"%";
   const button=document.getElementById("rewardButton");
   const result=document.getElementById("rewardResult");
-
-  if(data.unlocked && data.unlockUrl){
-    rewardUrl=data.unlockUrl;
-    button.style.display="none";
-    result.style.display="block";
-
-    document.getElementById("rewardMessage").textContent=
-      data.unlockMessage || "অভিনন্দন! তোমার Unlock Link প্রস্তুত।";
+  if(data.unlocked&&data.unlockUrl){
+    rewardUrl=data.unlockUrl;button.style.display="none";result.style.display="block";
+    document.getElementById("rewardMessage").textContent=data.unlockMessage||"অভিনন্দন! তোমার Unlock Link প্রস্তুত।";
   }else{
-    rewardUrl="";
-    button.style.display="block";
-    result.style.display="none";
-    button.disabled=!data.enabled || rewardBusy;
-    button.textContent=rewardBusy
-      ?"⏳ Please wait..."
-      :"▶ Watch Ads";
+    rewardUrl="";button.style.display="block";result.style.display="none";
+    button.disabled=!data.enabled||rewardBusy;
+    button.textContent=rewardBusy?"⏳ Please wait...":"▶ Watch Ads";
   }
 }
 
 async function loadRewardStatus(){
   if(!tg?.initData)return null;
-
   try{
     const res=await fetch(API+"/api/reward/status",{headers});
     const data=await res.json();
-
-    if(data.success){
-      updateRewardUI(data);
-      return data;
-    }
-
+    if(data.success){updateRewardUI(data);return data}
     return null;
-  }catch(e){
-    console.error("Reward status error",e);
-    return null;
-  }
+  }catch(e){console.error("Reward status error",e);return null}
 }
 
-async function pollRewardStatus(){
-  /*
-   * The browser does not decide whether an ad earned a reward.
-   * The backend checks Monetag's server-to-server postback.
-   */
-  for(let i=0;i<20;i++){
-    await new Promise(resolve=>setTimeout(resolve,2000));
-
-    const data=await loadRewardStatus();
-
-    if(data){
-      if(data.unlocked){
-        showModal(
-          "🎉 Reward Unlocked!",
-          data.unlockMessage ||
-          "তোমার Unlock Link প্রস্তুত। Reward Box থেকে লিংকটি Open বা Copy করতে পারবে।"
-        );
-        return true;
-      }
-    }
-  }
-
-  return false;
+async function verifyRewardTask(taskId){
+  const res=await fetch(API+"/api/reward/verify",{
+    method:"POST",
+    headers,
+    body:JSON.stringify({taskId})
+  });
+  const data=await res.json();
+  if(!res.ok||!data.success)throw new Error(data.error||"Reward verification failed");
+  updateRewardUI(data);
+  return data;
 }
 
 async function watchRewardAd(){
   if(rewardBusy)return;
-
   if(!tg?.initData){
-    showModal(
-      "Telegram Required",
-      "Rewarded Ads দেখতে Telegram Mini App থেকে প্রবেশ করো।"
-    );
-    return;
+    showModal("Telegram Required","Rewarded Ads দেখতে Telegram Mini App থেকে প্রবেশ করো।");return;
+  }
+  if(settings.ads?.adexiumEnabled===false){
+    showModal("Ads Disabled","Admin বিজ্ঞাপন বন্ধ রেখেছেন।");return;
+  }
+  if(!adexiumAds){
+    showModal("Ad Loading","Adexium SDK এখনো প্রস্তুত নয়। কিছুক্ষণ পর আবার চেষ্টা করো।");return;
   }
 
-  if(typeof window.show_12187766!=="function"){
-    showModal(
-      "Ad Loading",
-      "Monetag SDK এখনো লোড হয়নি। কিছুক্ষণ পর আবার চেষ্টা করো।"
-    );
-    return;
-  }
-
-  rewardBusy=true;
-
+  rewardBusy=true;rewardTaskId=null;rewardAdReceived=false;rewardAdCompleted=false;
   const button=document.getElementById("rewardButton");
-  button.disabled=true;
-  button.textContent="⏳ Preparing Ad...";
+  button.disabled=true;button.textContent="⏳ Preparing Ad...";
 
   try{
-    const sessionRes=await fetch(API+"/api/reward/session",{
-      method:"POST",
-      headers,
-      body:JSON.stringify({})
-    });
-
-    const session=await sessionRes.json();
-
-    if(!sessionRes.ok || !session.success){
-      throw new Error(
-        session.error || "Could not create ad session"
-      );
-    }
-
-    if(session.unlocked && session.unlockUrl){
-      updateRewardUI(session);
-      return;
-    }
-
     button.textContent="⏳ Showing Ad...";
+    const completed=await requestManualAd("reward");
 
-    try{
-      await window.show_12187766({
-        ymid:session.ymid,
-        requestVar:"unlock_url"
-      });
-    }catch(adError){
-      console.warn("Monetag SDK error:",adError);
+    if(!completed||!rewardAdReceived||!rewardTaskId){
+      throw new Error("বিজ্ঞাপন পাওয়া যায়নি বা বিজ্ঞাপন সম্পন্ন হয়নি।");
     }
 
-    button.textContent="⏳ Checking Monetag Confirmation...";
+    button.textContent="⏳ Verifying Ad...";
+    const result=await verifyRewardTask(rewardTaskId);
 
-    const unlocked=await pollRewardStatus();
-
-    if(!unlocked){
-      showModal(
-        "Ad Confirmation Pending",
-        "Monetag-এর সার্ভার থেকে বিজ্ঞাপনের নিশ্চিতকরণ এখনো আসেনি। নিশ্চিত হলে Progress আপডেট হবে। কিছুক্ষণ পরে আবার চেষ্টা করো।"
-      );
+    if(result.unlocked){
+      showModal("🎉 Reward Unlocked!",result.unlockMessage||"তোমার Reward Link প্রস্তুত।");
+    }else{
+      showModal("Ad Verified","একটি বিজ্ঞাপন যাচাই হয়েছে। Progress আপডেট করা হয়েছে।");
     }
-
   }catch(e){
-    console.error("Reward ad error:",e);
-
-    showModal(
-      "Reward Error",
-      e.message || "বিজ্ঞাপন চালু করা যায়নি। আবার চেষ্টা করো।"
-    );
+    console.error("Reward error:",e);
+    showModal("Reward Error",e.message||"বিজ্ঞাপন যাচাই করা যায়নি।");
   }finally{
-    rewardBusy=false;
-
-    // Let the server decide whether the button is enabled.
-    const latest=await loadRewardStatus();
-
-    if(!latest){
-      button.disabled=settings.reward?.enabled === false;
-      button.textContent="▶ Watch Ads";
-    }
+    rewardBusy=false;rewardTaskId=null;rewardAdReceived=false;rewardAdCompleted=false;
+    await loadRewardStatus();
+    button.disabled=settings.reward?.enabled===false;
+    if(!rewardUrl)button.textContent="▶ Watch Ads";
   }
 }
 
-function openRewardUrl(){
-  if(!rewardUrl)return;
-  openExternal(rewardUrl);
-}
-
-async function copyRewardUrl(){
-  if(!rewardUrl)return;
-  await copyText(rewardUrl);
-}
-
-function openVideoBot(videoId){
-  const url=
-    `https://t.me/${BOT_USERNAME}?start=v_${encodeURIComponent(videoId)}`;
-
-  openExternal(url);
-}
+function openRewardUrl(){if(rewardUrl)openExternal(rewardUrl)}
+async function copyRewardUrl(){if(rewardUrl)await copyText(rewardUrl)}
 
 function openExternal(url){
-  if(tg?.openTelegramLink && url.startsWith("https://t.me/")){
-    tg.openTelegramLink(url);
-  }else if(tg?.openLink){
-    tg.openLink(url);
-  }else{
-    window.open(url,"_blank");
-  }
+  if(tg?.openTelegramLink&&url.startsWith("https://t.me/"))tg.openTelegramLink(url);
+  else if(tg?.openLink)tg.openLink(url);
+  else window.open(url,"_blank");
 }
 
 async function init(){
   await loadSettings();
   await loadVideos();
-
   if(tg?.initData){
     try{
       await fetch(API+"/api/me",{headers});
       await loadRewardStatus();
-    }catch(e){
-      console.error("User registration error",e);
-    }
+    }catch(e){console.error("User registration error",e)}
   }
 }
-
 init();
 </script>
 </body>
