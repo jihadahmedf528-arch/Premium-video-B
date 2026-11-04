@@ -20,6 +20,9 @@ const MONETAG_POSTBACK_SECRET =
   process.env.MONETAG_POSTBACK_SECRET || "";
 
 const MONETAG_ZONE_ID = "12187766";
+const ADEXIUM_DEFAULT_WID =
+  "d7ac754e-70bc-484b-8346-75eb7b5fa3b6";
+
 const REWARD_SESSION_MAX_AGE = 48 * 60 * 60 * 1000;
 
 let db;
@@ -54,11 +57,11 @@ const DEFAULT_SETTINGS = {
     rewardPerReferral: 1
   },
 
+  // Only Adexium and Monetag are supported.
   ads: {
-    activeNetwork: "monetag",
+    adexiumEnabled: true,
+    adexiumWidgetId: ADEXIUM_DEFAULT_WID,
     monetagZoneId: MONETAG_ZONE_ID,
-    gigapubZoneId: "",
-    adsgramBlockId: "57820",
     adsPerVideo: 2
   },
 
@@ -502,6 +505,8 @@ async function processReferral(
 /* Merge settings */
 
 function mergeSettings(saved = {}) {
+  const savedAds = saved.ads || {};
+
   return {
     ...DEFAULT_SETTINGS,
     ...saved,
@@ -521,10 +526,28 @@ function mergeSettings(saved = {}) {
       ...(saved.referral || {})
     },
 
+    // Only keep Adexium and Monetag settings.
+    // Old GigaPub and AdsGram fields are ignored.
     ads: {
-      ...DEFAULT_SETTINGS.ads,
-      ...(saved.ads || {}),
-      monetagZoneId: MONETAG_ZONE_ID
+      adexiumEnabled:
+        savedAds.adexiumEnabled !== false,
+
+      adexiumWidgetId:
+        String(
+          savedAds.adexiumWidgetId ||
+          ADEXIUM_DEFAULT_WID
+        ),
+
+      monetagZoneId: MONETAG_ZONE_ID,
+
+      adsPerVideo: Math.max(
+        1,
+        Math.min(
+          100,
+          Number(savedAds.adsPerVideo) ||
+          DEFAULT_SETTINGS.ads.adsPerVideo
+        )
+      )
     },
 
     pagination: {
@@ -780,6 +803,15 @@ app.post(
   requireTelegramUser,
   async (req, res) => {
     try {
+      // Do not start a reward session unless the
+      // server-to-server postback secret is configured.
+      if (!MONETAG_POSTBACK_SECRET) {
+        return res.status(503).json({
+          success: false,
+          error: "Reward system is temporarily unavailable"
+        });
+      }
+
       const user = req.telegramUser;
 
       await saveTelegramUser(user);
@@ -969,7 +1001,8 @@ app.get(
       );
 
       // The event marker and counter are updated in one
-      // Firebase transaction. This prevents duplicate rewards.
+      // Firebase transaction. Duplicate postbacks cannot
+      // increase the user's reward progress twice.
       const transactionResult = await progressRef.transaction(
         current => {
           current = current || {};
@@ -1090,7 +1123,8 @@ app.put(
         }
       }
 
-      // Validate reward settings.
+      /* Validate reward settings */
+
       if (updates.reward) {
         const currentSnap = await db
           .ref("settings/reward")
@@ -1167,7 +1201,8 @@ app.put(
         };
       }
 
-      // Validate referral settings.
+      /* Validate referral settings */
+
       if (updates.referral) {
         const currentSnap = await db
           .ref("settings/referral")
@@ -1208,17 +1243,61 @@ app.put(
         };
       }
 
-      // Keep the Monetag zone synchronized with the SDK.
+      /* Save Adexium + Monetag settings only */
+
       if (updates.ads) {
         const currentSnap = await db
           .ref("settings/ads")
           .once("value");
 
+        const current = currentSnap.val() || {};
+        const incoming = updates.ads;
+
+        const widgetId =
+          incoming.adexiumWidgetId !== undefined
+            ? String(incoming.adexiumWidgetId).trim()
+            : String(
+                current.adexiumWidgetId ||
+                ADEXIUM_DEFAULT_WID
+              );
+
+        if (!widgetId || widgetId.length > 150) {
+          return res.status(400).json({
+            success: false,
+            error: "Invalid Adexium Widget ID"
+          });
+        }
+
+        const adsPerVideo =
+          incoming.adsPerVideo !== undefined
+            ? Number(incoming.adsPerVideo)
+            : Number(current.adsPerVideo) ||
+              DEFAULT_SETTINGS.ads.adsPerVideo;
+
+        if (
+          !Number.isInteger(adsPerVideo) ||
+          adsPerVideo < 1 ||
+          adsPerVideo > 100
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: "Ads per video must be between 1 and 100"
+          });
+        }
+
         updates.ads = {
-          ...DEFAULT_SETTINGS.ads,
-          ...(currentSnap.val() || {}),
-          ...updates.ads,
-          monetagZoneId: MONETAG_ZONE_ID
+          adexiumEnabled:
+            incoming.adexiumEnabled !== undefined
+              ? incoming.adexiumEnabled === true ||
+                incoming.adexiumEnabled === "true"
+              : current.adexiumEnabled !== false,
+
+          adexiumWidgetId: widgetId,
+
+          // This zone is fixed to match the Monetag SDK.
+          monetagZoneId: MONETAG_ZONE_ID,
+
+          adsPerVideo
         };
       }
 
