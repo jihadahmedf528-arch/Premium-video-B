@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -106,7 +105,7 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 
  <!-- REWARD SETTINGS -->
 
- <h3>🎁 50 Ads Unlock System</h3>
+ <h3>🎁 Reward Ads Unlock System</h3>
 
  <label>Unlock System</label>
  <select id="unlockEnabled">
@@ -114,7 +113,7 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
   <option value="false">Disabled</option>
  </select>
 
- <label>Required Ads</label>
+ <label>Required Rewarded Ads</label>
  <input id="rewardAds" type="number" min="1" max="1000" value="50">
 
  <label>Unlock Link</label>
@@ -124,9 +123,8 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
  <textarea id="unlockMessage" maxlength="500" placeholder="Write an attractive message for users..."></textarea>
 
  <p class="note">
- এই লিংকটি প্রত্যেক ব্যবহারকারীর জন্য আলাদাভাবে আনলক হবে।
- প্রয়োজনীয় সংখ্যক Rewarded Ads সম্পন্ন না হওয়া পর্যন্ত ব্যবহারকারী লিংক দেখতে পাবে না।
- Unlock URL শুধু Admin Panel থেকে পরিবর্তন করা যাবে।
+ প্রয়োজনীয় সংখ্যক Monetag Rewarded Ads-এর valued impression নিশ্চিত হলে
+ ব্যবহারকারীর জন্য Unlock Link প্রকাশ হবে। প্রত্যেক ব্যবহারকারীর অগ্রগতি আলাদা থাকবে।
  </p>
 
  <hr>
@@ -146,7 +144,7 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 
  <p class="note">
  নতুন ব্যবহারকারী সফলভাবে Referral Link দিয়ে প্রথমবার যোগ হলে
- Referrer-এর Credit বাড়বে।
+ Referrer-এর Credit বাড়বে। Referral Credit এবং Rewarded Ads আলাদা।
  </p>
 
  <hr>
@@ -162,33 +160,29 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
  </select>
 
  <label>Adexium Widget ID</label>
- <input id="adexiumWidget" placeholder="Your Adexium Widget ID">
+ <input
+  id="adexiumWidget"
+  placeholder="Adexium Widget ID"
+  value="d7ac754e-70bc-484b-8346-75eb7b5fa3b6"
+ >
 
  <p class="note">
- Adexium সাধারণ বিজ্ঞাপনের জন্য। এটি ৫০টি Rewarded Ads-এর
- গণনায় ব্যবহার করা হবে না।
+ Adexium সাধারণ Interstitial বিজ্ঞাপনের জন্য ব্যবহার হবে।
+ এটি Monetag Rewarded Ads-এর সংখ্যার সঙ্গে যোগ হবে না।
  </p>
 
- <label>Other Advertising Network</label>
- <select id="adNetwork">
-  <option value="monetag">Monetag</option>
-  <option value="gigapub">GigaPub</option>
-  <option value="adsgram">AdsGram</option>
- </select>
+ <hr>
+
+ <h3>🎯 Monetag Rewarded Ads</h3>
 
  <label>Monetag Rewarded Ads Zone ID</label>
  <input id="monetagZone" value="12187766" disabled>
 
  <p class="note">
- Rewarded Ads-এর জন্য নির্দিষ্ট Monetag Zone ID: 12187766।
- এটি পরিবর্তন করা যাবে না, কারণ Server ও SDK একই Zone ব্যবহার করে।
+ নির্দিষ্ট Monetag Zone ID: 12187766।
+ এটি Server ও SDK-এর সঙ্গে মিল রেখে স্থির রাখা হয়েছে।
+ Reward কেবল Server-এ Monetag-এর verified valued impression postback এলে গণনা হবে।
  </p>
-
- <label>GigaPub Zone ID</label>
- <input id="gigapubZone" placeholder="GigaPub Zone ID">
-
- <label>AdsGram Block ID</label>
- <input id="adsgramZone" placeholder="AdsGram Block ID">
 
  <label>Default Ads Per Video</label>
  <input id="defaultAds" type="number" min="1" max="100" value="2">
@@ -277,6 +271,8 @@ const API = "";
 let key = sessionStorage.getItem("pv_admin_key") || "";
 
 const MONETAG_ZONE_ID = "12187766";
+const DEFAULT_ADEXIUM_WIDGET_ID =
+ "d7ac754e-70bc-484b-8346-75eb7b5fa3b6";
 
 function authHeaders(){
  return {
@@ -366,7 +362,7 @@ async function loadDashboard(){
 async function loadSettings(){
  const d = await api("/api/admin/settings");
 
- if(!d.success) {
+ if(!d.success){
   throw new Error("Could not load settings");
  }
 
@@ -404,19 +400,10 @@ async function loadSettings(){
   String(s.ads?.adexiumEnabled !== false);
 
  document.getElementById("adexiumWidget").value =
-  s.ads?.adexiumWidgetId || "";
-
- document.getElementById("adNetwork").value =
-  s.ads?.activeNetwork || "monetag";
+  s.ads?.adexiumWidgetId || DEFAULT_ADEXIUM_WIDGET_ID;
 
  document.getElementById("monetagZone").value =
   MONETAG_ZONE_ID;
-
- document.getElementById("gigapubZone").value =
-  s.ads?.gigapubZoneId || "";
-
- document.getElementById("adsgramZone").value =
-  s.ads?.adsgramBlockId || "";
 
  document.getElementById("defaultAds").value =
   s.ads?.adsPerVideo ?? 2;
@@ -443,6 +430,9 @@ async function saveSettings(){
 
  const unlockMessage =
   document.getElementById("unlockMessage").value.trim();
+
+ const adexiumWidgetId =
+  document.getElementById("adexiumWidget").value.trim();
 
  if(
   !Number.isInteger(requiredAds) ||
@@ -473,6 +463,11 @@ async function saveSettings(){
 
  if(unlockMessage.length > 500){
   alert("Unlock Message maximum 500 characters");
+  return;
+ }
+
+ if(!adexiumWidgetId || adexiumWidgetId.length > 150){
+  alert("Please enter a valid Adexium Widget ID");
   return;
  }
 
@@ -528,19 +523,9 @@ async function saveSettings(){
      adexiumEnabled:
       document.getElementById("adexiumEnabled").value === "true",
 
-     adexiumWidgetId:
-      document.getElementById("adexiumWidget").value.trim(),
-
-     activeNetwork:
-      document.getElementById("adNetwork").value,
+     adexiumWidgetId,
 
      monetagZoneId:MONETAG_ZONE_ID,
-
-     gigapubZoneId:
-      document.getElementById("gigapubZone").value.trim(),
-
-     adsgramBlockId:
-      document.getElementById("adsgramZone").value.trim(),
 
      adsPerVideo:defaultAds
     }
