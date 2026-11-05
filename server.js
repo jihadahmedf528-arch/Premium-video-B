@@ -48,7 +48,12 @@ const DEFAULT_SETTINGS = {
 
   referral: {
     enabled: true,
-    rewardPerReferral: 1
+    rewardPerReferral: 1,
+    title: "🎁 Referral Program",
+    message:
+      "বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো। তারা তোমার লিংক দিয়ে প্রথমবার Start করলেই তুমি Credit পাবে।",
+    instructions:
+      "১. Referral Link কপি করো।\n২. বন্ধুদের সঙ্গে শেয়ার করো।\n৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।"
   },
 
   ads: {
@@ -299,8 +304,7 @@ async function saveTelegramUser(user, startParam = "") {
 
 async function processReferral(
   newUserId,
-  startParam = "",
-  isNewUser = false
+  startParam = ""
 ) {
   const match = /^ref_(\d{1,20})$/.exec(
     String(startParam || "")
@@ -323,38 +327,154 @@ async function processReferral(
     };
   }
 
-  const claimRef = db.ref(`referralClaims/${newId}`);
-  const existingClaim = await claimRef.once("value");
+  try {
+    const claimRef = db.ref(`referralClaims/${newId}`);
 
-  let claim = existingClaim.val();
+    /*
+     * Check whether this user was already referred.
+     */
 
-  if (!claim) {
-    if (!isNewUser) {
+    const newUserRef = db.ref(`users/${newId}`);
+    const newUserSnap = await newUserRef.once("value");
+    const newUserData = newUserSnap.val() || {};
+
+    if (
+      newUserData.referredBy &&
+      String(newUserData.referredBy) !== referrerId
+    ) {
       return {
         success: false,
-        reason: "User is not newly registered"
+        reason: "User already referred by another person"
       };
     }
 
-    const settingsSnap = await db
-      .ref("settings/referral")
-      .once("value");
+    /*
+     * Check existing referral claim.
+     */
 
-    const referralSettings = {
-      ...DEFAULT_SETTINGS.referral,
-      ...(settingsSnap.val() || {})
-    };
+    const existingClaimSnap = await claimRef.once("value");
+    let claim = existingClaimSnap.val();
 
-    if (!referralSettings.enabled) {
-      return {
-        success: false,
-        reason: "Referral disabled"
+    if (claim) {
+      if (String(claim.referrerId) !== referrerId) {
+        return {
+          success: false,
+          reason: "Referral claim mismatch"
+        };
+      }
+
+      if (claim.status === "completed") {
+        return {
+          success: false,
+          reason: "Already rewarded"
+        };
+      }
+    } else {
+      /*
+       * Only a user without a previous referral claim
+       * and without referredBy can receive a referral.
+       *
+       * We intentionally do NOT require isNewUser here.
+       * This fixes the case where /api/me created the
+       * Firebase user record before the /start webhook.
+       */
+
+      if (newUserData.referredBy) {
+        return {
+          success: false,
+          reason: "User already referred"
+        };
+      }
+
+      const settingsSnap = await db
+        .ref("settings/referral")
+        .once("value");
+
+      const referralSettings = {
+        ...DEFAULT_SETTINGS.referral,
+        ...(settingsSnap.val() || {})
       };
+
+      if (referralSettings.enabled === false) {
+        return {
+          success: false,
+          reason: "Referral disabled"
+        };
+      }
+
+      const reward = Number(
+        referralSettings.rewardPerReferral
+      );
+
+      if (
+        !Number.isFinite(reward) ||
+        reward <= 0 ||
+        reward > 1000000
+      ) {
+        return {
+          success: false,
+          reason: "Invalid referral reward"
+        };
+      }
+
+      const referrerSnap = await db
+        .ref(`users/${referrerId}`)
+        .once("value");
+
+      if (!referrerSnap.exists()) {
+        return {
+          success: false,
+          reason: "Referrer not found"
+        };
+      }
+
+      /*
+       * Create one claim per referred Telegram user.
+       * The transaction prevents duplicate claims.
+       */
+
+      const claimResult = await claimRef.transaction(
+        current => {
+          if (current) return;
+
+          return {
+            referrerId,
+            newUserId: newId,
+            reward,
+            status: "pending",
+            createdAt: Date.now()
+          };
+        }
+      );
+
+      claim = claimResult.snapshot.val();
+
+      if (
+        !claim ||
+        String(claim.referrerId) !== referrerId
+      ) {
+        return {
+          success: false,
+          reason: "Could not create referral claim"
+        };
+      }
+
+      if (claim.status === "completed") {
+        return {
+          success: false,
+          reason: "Already rewarded"
+        };
+      }
     }
 
-    const reward = Number(
-      referralSettings.rewardPerReferral
-    );
+    /*
+     * Apply the reward once.
+     *
+     * users/{referrerId}/referrals/{newId}
+     * is the permanent duplicate-prevention marker.
+     */
+
+    const reward = Number(claim.reward);
 
     if (
       !Number.isFinite(reward) ||
@@ -363,135 +483,97 @@ async function processReferral(
     ) {
       return {
         success: false,
-        reason: "Invalid referral reward"
+        reason: "Invalid stored reward"
       };
     }
 
-    const referrerSnap = await db
-      .ref(`users/${referrerId}`)
-      .once("value");
+    const referrerRef = db.ref(`users/${referrerId}`);
 
-    if (!referrerSnap.exists()) {
-      return {
-        success: false,
-        reason: "Referrer not found"
-      };
-    }
+    const referrerResult = await referrerRef.transaction(
+      user => {
+        if (!user) return;
 
-    const newUserSnap = await db
-      .ref(`users/${newId}`)
-      .once("value");
+        user.referrals = user.referrals || {};
 
-    const newUserData = newUserSnap.val() || {};
+        /*
+         * If already rewarded, do not add credits again.
+         */
 
-    if (newUserData.referredBy) {
-      return {
-        success: false,
-        reason: "User already referred"
-      };
-    }
+        if (user.referrals[newId]) {
+          return user;
+        }
 
-    const claimResult = await claimRef.transaction(
-      current => {
-        if (current) return;
+        user.credits =
+          (Number(user.credits) || 0) + reward;
 
-        return {
-          referrerId,
-          newUserId: newId,
+        user.totalReferrals =
+          (Number(user.totalReferrals) || 0) + 1;
+
+        user.referrals[newId] = {
           reward,
-          status: "pending",
-          createdAt: Date.now()
+          createdAt:
+            Number(claim.createdAt) || Date.now()
         };
+
+        return user;
       }
     );
 
-    claim = claimResult.snapshot.val();
-  }
+    if (!referrerResult.committed) {
+      const latestReferrerSnap = await referrerRef.once("value");
+      const latestReferrer = latestReferrerSnap.val() || {};
 
-  if (
-    !claim ||
-    String(claim.referrerId) !== referrerId
-  ) {
-    return {
-      success: false,
-      reason: "Referral claim mismatch"
-    };
-  }
-
-  if (claim.status === "completed") {
-    return {
-      success: false,
-      reason: "Already rewarded"
-    };
-  }
-
-  const reward = Number(claim.reward);
-
-  if (!Number.isFinite(reward) || reward <= 0) {
-    return {
-      success: false,
-      reason: "Invalid stored reward"
-    };
-  }
-
-  const referrerRef = db.ref(`users/${referrerId}`);
-
-  const referrerResult = await referrerRef.transaction(
-    user => {
-      if (!user) return;
-
-      user.referrals = user.referrals || {};
-
-      if (user.referrals[newId]) {
-        return user;
+      if (
+        !latestReferrer.referrals ||
+        !latestReferrer.referrals[newId]
+      ) {
+        return {
+          success: false,
+          reason: "Could not apply referral reward"
+        };
       }
-
-      user.credits =
-        (Number(user.credits) || 0) + reward;
-
-      user.totalReferrals =
-        (Number(user.totalReferrals) || 0) + 1;
-
-      user.referrals[newId] = {
-        reward,
-        createdAt:
-          Number(claim.createdAt) || Date.now()
-      };
-
-      return user;
     }
-  );
 
-  if (!referrerResult.committed) {
-    const latestReferrer = await referrerRef.once("value");
-    const latestData = latestReferrer.val() || {};
+    /*
+     * Save referral information to the new user.
+     */
 
-    if (
-      !latestData.referrals ||
-      !latestData.referrals[newId]
-    ) {
-      return {
-        success: false,
-        reason: "Could not apply referral reward"
-      };
-    }
+    await newUserRef.update({
+      referredBy: referrerId,
+      referredAt:
+        Number(claim.createdAt) || Date.now()
+    });
+
+    /*
+     * Mark claim completed only after the reward
+     * has been safely applied.
+     */
+
+    await claimRef.update({
+      status: "completed",
+      completedAt: Date.now()
+    });
+
+    console.log(
+      `Referral completed: referrer=${referrerId}, newUser=${newId}, reward=${reward}`
+    );
+
+    return {
+      success: true,
+      reward
+    };
+
+  } catch (error) {
+    console.error(
+      "Referral processing error:",
+      error.message
+    );
+
+    return {
+      success: false,
+      reason: error.message
+    };
   }
-
-  await db.ref(`users/${newId}`).update({
-    referredBy: referrerId,
-    referredAt:
-      Number(claim.createdAt) || Date.now()
-  });
-
-  await claimRef.update({
-    status: "completed",
-    completedAt: Date.now()
-  });
-
-  return {
-    success: true,
-    reward
-  };
 }
 
 /* Merge settings */
@@ -810,10 +892,6 @@ app.post(
         });
       }
 
-      /*
-       * Prevent duplicate requests from charging twice.
-       */
-
       const requestHash = crypto
         .createHash("sha256")
         .update(String(user.id) + ":" + requestId)
@@ -842,11 +920,6 @@ app.post(
           error: "This unlock request was already used"
         });
       }
-
-      /*
-       * One new request = one credit.
-       * Rewatching the same video also costs one credit.
-       */
 
       const userRef = db.ref(`users/${user.id}`);
 
@@ -1060,11 +1133,6 @@ app.post(
         });
       }
 
-      /*
-       * Verify the task directly with Adexium.
-       * Client-side playback events are not trusted.
-       */
-
       const verifyUrl =
         "https://bid.tgads.live/task/check/" +
         encodeURIComponent(wid) + "/" +
@@ -1099,11 +1167,6 @@ app.post(
         });
       }
 
-      /*
-       * A global task claim prevents a task from
-       * being credited to multiple Telegram users.
-       */
-
       const taskHash = crypto
         .createHash("sha256")
         .update(taskId)
@@ -1136,11 +1199,6 @@ app.post(
           error: "This ad task has already been claimed"
         });
       }
-
-      /*
-       * Separate Adexium progress path.
-       * Old Monetag rewardProgress data is untouched.
-       */
 
       const progressRef = db.ref(
         `users/${user.id}/adexiumRewardProgress`
@@ -1386,6 +1444,21 @@ app.put(
             ? Number(incoming.rewardPerReferral)
             : Number(current.rewardPerReferral);
 
+        const title =
+          incoming.title !== undefined
+            ? String(incoming.title)
+            : String(current.title || "");
+
+        const message =
+          incoming.message !== undefined
+            ? String(incoming.message)
+            : String(current.message || "");
+
+        const instructions =
+          incoming.instructions !== undefined
+            ? String(incoming.instructions)
+            : String(current.instructions || "");
+
         if (
           !Number.isFinite(reward) ||
           reward < 0 ||
@@ -1398,6 +1471,17 @@ app.put(
           });
         }
 
+        if (
+          title.length > 150 ||
+          message.length > 2000 ||
+          instructions.length > 2000
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: "Referral text is too long"
+          });
+        }
+
         updates.referral = {
           ...current,
           ...incoming,
@@ -1405,7 +1489,10 @@ app.put(
             incoming.enabled !== undefined
               ? !!incoming.enabled
               : !!current.enabled,
-          rewardPerReferral: reward
+          rewardPerReferral: reward,
+          title,
+          message,
+          instructions
         };
       }
 
@@ -1840,15 +1927,19 @@ app.post(
       if (text.startsWith("/start")) {
         const payload = text.split(/\s+/)[1] || "";
 
-        const saveResult = await saveTelegramUser(
+        await saveTelegramUser(
           message.from,
           payload
         );
 
+        /*
+         * Referral is processed immediately when
+         * Telegram receives /start ref_USER_ID.
+         */
+
         const referralResult = await processReferral(
           message.from.id,
-          payload,
-          saveResult.isNewUser
+          payload
         );
 
         if (referralResult.success) {
@@ -1859,6 +1950,13 @@ app.post(
               `তোমার Referral থেকে ` +
               `${referralResult.reward} Credit যোগ হয়েছে।`
           });
+        } else if (
+          payload.startsWith("ref_") &&
+          referralResult.reason !== "Already rewarded"
+        ) {
+          console.log(
+            `Referral not completed: newUser=${message.from.id}, reason=${referralResult.reason}`
+          );
         }
 
         const botUsername =
