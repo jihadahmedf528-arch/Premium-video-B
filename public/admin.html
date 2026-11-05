@@ -129,18 +129,32 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 
  <h3>👥 Referral Settings</h3>
 
- <label>Referral Reward (Credit)</label>
- <input id="referralReward" type="number" min="0" value="1">
-
  <label>Referral System</label>
  <select id="referralEnabled">
   <option value="true">Enabled</option>
   <option value="false">Disabled</option>
  </select>
 
+ <label>Reward Per Successful Referral (Credit)</label>
+ <input id="referralReward" type="number" min="0" max="1000000" value="1">
+
+ <label>Referral Panel Title</label>
+ <input id="referralTitle" maxlength="150"
+ placeholder="🎁 Referral Program">
+
+ <label>Referral Panel Message</label>
+ <textarea id="referralMessage" maxlength="2000"
+ placeholder="বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো..."></textarea>
+
+ <label>Referral Instructions</label>
+ <textarea id="referralInstructions" maxlength="2000"
+ placeholder="১. Referral Link কপি করো।&#10;২. বন্ধুদের সঙ্গে শেয়ার করো।&#10;৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।"></textarea>
+
  <p class="note">
- Referral Credit এবং Adexium Reward আলাদা থাকবে।
- সফল Referral হলে Referrer-এর Credit বাড়বে।
+ নতুন ব্যবহারকারী তোমার Referral Link দিয়ে Bot-এ Start করলে
+ Referrer-এর Credit যোগ হবে। একই ব্যবহারকারীর জন্য একবারের বেশি
+ Referral Reward দেওয়া হবে না। নিজের Referral Link ব্যবহার করে
+ নিজেকে Referral করা যাবে না।
  </p>
 
  <hr>
@@ -358,6 +372,17 @@ async function loadSettings(){
  document.getElementById("referralEnabled").value =
   String(s.referral?.enabled !== false);
 
+ document.getElementById("referralTitle").value =
+  s.referral?.title || "🎁 Referral Program";
+
+ document.getElementById("referralMessage").value =
+  s.referral?.message ||
+  "বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো। তারা তোমার লিংক দিয়ে প্রথমবার Start করলেই তুমি Credit পাবে।";
+
+ document.getElementById("referralInstructions").value =
+  s.referral?.instructions ||
+  "১. Referral Link কপি করো।\n২. বন্ধুদের সঙ্গে শেয়ার করো।\n৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।";
+
  document.getElementById("adexiumEnabled").value =
   String(s.ads?.adexiumEnabled !== false);
 
@@ -393,6 +418,15 @@ async function saveSettings(){
  const adexiumWidgetId =
   document.getElementById("adexiumWidget").value.trim();
 
+ const referralTitle =
+  document.getElementById("referralTitle").value.trim();
+
+ const referralMessage =
+  document.getElementById("referralMessage").value.trim();
+
+ const referralInstructions =
+  document.getElementById("referralInstructions").value.trim();
+
  if(!Number.isInteger(requiredAds) || requiredAds < 1 || requiredAds > 1000){
   alert("Required Ads must be between 1 and 1000");
   return;
@@ -415,6 +449,21 @@ async function saveSettings(){
 
  if(!adexiumWidgetId || adexiumWidgetId.length > 150){
   alert("Please enter a valid Adexium Widget ID");
+  return;
+ }
+
+ if(referralTitle.length > 150){
+  alert("Referral Title maximum 150 characters");
+  return;
+ }
+
+ if(referralMessage.length > 2000){
+  alert("Referral Message maximum 2000 characters");
+  return;
+ }
+
+ if(referralInstructions.length > 2000){
+  alert("Referral Instructions maximum 2000 characters");
   return;
  }
 
@@ -451,7 +500,10 @@ async function saveSettings(){
 
     referral:{
      enabled:document.getElementById("referralEnabled").value === "true",
-     rewardPerReferral:referralReward
+     rewardPerReferral:referralReward,
+     title:referralTitle,
+     message:referralMessage,
+     instructions:referralInstructions
     },
 
     ads:{
