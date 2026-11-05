@@ -70,7 +70,7 @@ button{font-family:inherit;cursor:pointer}
 .empty{text-align:center;padding:35px 10px;color:var(--muted);font-size:13px}
 .loading{text-align:center;padding:30px;color:#c6aaaa}
 .modal-bg{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;padding:20px;z-index:10}
-.modal{width:100%;max-width:390px;background:#1b1414;border:1px solid #66302d;border-radius:17px;padding:22px}
+.modal{width:100%;max-width:390px;background:#1b1414;border:1px solid #66302d;border-radius:17px;padding:22px;max-height:85vh;overflow-y:auto}
 .modal h3{margin:0 0 12px;font-size:18px}
 .modal p{color:#c6b6b6;font-size:13px;line-height:1.7;overflow-wrap:anywhere;white-space:pre-line}
 .modal-close,.modal-copy{width:100%;padding:12px;border:0;border-radius:9px;color:white;font-weight:bold;margin-top:10px}
@@ -445,10 +445,16 @@ function openReferral(){
 
   referralUrl=`https://t.me/${BOT_USERNAME}?start=ref_${user.id}`;
 
+  const referral=settings.referral||{};
+  const title=referral.title||"🎁 Referral Program";
+  const message=referral.message||
+    "বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো। তারা তোমার লিংক দিয়ে প্রথমবার Start করলেই তুমি Credit পাবে।";
+  const instructions=referral.instructions||
+    "১. Referral Link কপি করো।\n২. বন্ধুদের সঙ্গে শেয়ার করো।\n৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।";
+
   showModal(
-    "Referral System",
-    "তোমার Referral Link:\n"+referralUrl+
-    "\n\nবন্ধুদের সঙ্গে লিংকটি শেয়ার করো। সফল Referral-এর Reward Admin Panel থেকে নিয়ন্ত্রণ করা হবে।",
+    title,
+    message+"\n\n"+instructions+"\n\nতোমার Referral Link:\n"+referralUrl,
     true
   );
 }
