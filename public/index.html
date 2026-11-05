@@ -62,6 +62,7 @@ button{font-family:inherit;cursor:pointer}
 .video-actions button{flex:1;padding:11px 8px;border-radius:9px;border:0;font-size:12px;font-weight:bold}
 .unlock-btn{background:linear-gradient(100deg,#ff303d,#ff8126);color:white}
 .watch-btn{background:#252020;color:#ddd;border:1px solid #443333!important}
+.video-actions button:disabled{opacity:.5;cursor:not-allowed}
 .pagination{display:flex;justify-content:center;align-items:center;gap:16px;margin:22px 0}
 .page-btn{background:#241616;border:1px solid #593030;color:white;border-radius:8px;padding:10px 15px}
 .page-btn:disabled{opacity:.3}
@@ -166,8 +167,8 @@ let rewardTaskId=null;
 let rewardAdReceived=false;
 let rewardAdCompleted=false;
 let rewardResolve=null;
-let rewardTimeout=null;
 let videoAdResolve=null;
+let unlockBusy=false;
 
 const headers={
   "Content-Type":"application/json",
@@ -194,7 +195,9 @@ async function copyText(text){
       document.execCommand("copy");area.remove();
     }
     showModal("Copied Successfully","লিংকটি কপি হয়েছে।");
-  }catch(e){showModal("Copy Failed","লিংক কপি করা যায়নি। আবার চেষ্টা করো।")}
+  }catch(e){
+    showModal("Copy Failed","লিংক কপি করা যায়নি। আবার চেষ্টা করো।");
+  }
 }
 async function copyReferral(){if(referralUrl)await copyText(referralUrl)}
 
@@ -243,19 +246,19 @@ function initAdexium(){
     adexiumAds.autoMode();
     adexiumStarted=true;
     console.log("Adexium initialized");
-  }catch(e){console.error("Adexium init error",e)}
+  }catch(e){
+    console.error("Adexium init error",e);
+  }
 }
 
 function requestManualAd(type){
   return new Promise(resolve=>{
     if(!adexiumAds||manualAdBusy){resolve(false);return}
     manualAdBusy=true;
+
     const finish=value=>{
-      if(type==="reward"){
-        rewardResolve=null;
-      }else{
-        videoAdResolve=null;
-      }
+      if(type==="reward")rewardResolve=null;
+      else videoAdResolve=null;
       manualAdBusy=false;
       resolve(value);
     };
@@ -281,47 +284,69 @@ async function loadSettings(){
     const res=await fetch(API+"/api/settings");
     const data=await res.json();
     if(!data.success)return;
+
     settings=data.settings||{};
     document.getElementById("appName").textContent=settings.appName||"Premium Video";
-    document.getElementById("promoName").textContent=settings.promotionalChannel?.name||"Promotional Channel";
+    document.getElementById("promoName").textContent=
+      settings.promotionalChannel?.name||"Promotional Channel";
+
     const reward=settings.reward||{};
     const required=Number(reward.adsRequired)||50;
+
     document.getElementById("rewardHeading").textContent=`${required} Ads Reward`;
     document.getElementById("rewardDescription").textContent=
       reward.unlockMessage||`Watch ${required} ads to unlock your reward URL.`;
+
     renderCategories();
     initAdexium();
-  }catch(e){console.error("Settings error",e)}
+  }catch(e){
+    console.error("Settings error",e);
+  }
 }
 
 function renderCategories(){
   const box=document.getElementById("categories");
   const categories=(settings.categories||[]).filter(c=>c.enabled!==false);
   box.innerHTML="";
+
   const all=document.createElement("button");
   all.className="cat"+(currentCategory==="all"?" active":"");
-  all.textContent="All Videos";all.onclick=()=>selectCategory("all");
+  all.textContent="All Videos";
+  all.onclick=()=>selectCategory("all");
   box.appendChild(all);
+
   categories.filter(c=>c.id!=="all").forEach(c=>{
     const btn=document.createElement("button");
     btn.className="cat"+(currentCategory===c.id?" active":"");
-    btn.textContent=c.name;btn.onclick=()=>selectCategory(c.id);
+    btn.textContent=c.name;
+    btn.onclick=()=>selectCategory(c.id);
     box.appendChild(btn);
   });
 }
+
 function selectCategory(id){
-  currentCategory=id;currentPage=1;renderCategories();loadVideos();
+  currentCategory=id;
+  currentPage=1;
+  renderCategories();
+  loadVideos();
 }
 
 async function loadVideos(){
   const list=document.getElementById("videoList");
   list.innerHTML='<div class="loading">Loading videos...</div>';
+
   try{
-    const url=API+"/api/videos?page="+currentPage+"&category="+encodeURIComponent(currentCategory);
-    const res=await fetch(url);const data=await res.json();
+    const url=API+"/api/videos?page="+currentPage+
+      "&category="+encodeURIComponent(currentCategory);
+    const res=await fetch(url);
+    const data=await res.json();
+
     if(!data.success)throw new Error("Unable to load videos");
-    videos=data.videos||[];totalPages=data.pagination?.totalPages||1;
-    renderVideos();updatePagination(data.pagination);
+
+    videos=data.videos||[];
+    totalPages=data.pagination?.totalPages||1;
+    renderVideos();
+    updatePagination(data.pagination);
   }catch(e){
     list.innerHTML='<div class="empty">ভিডিও লোড করা যায়নি। আবার চেষ্টা করো।</div>';
     console.error(e);
@@ -329,34 +354,61 @@ async function loadVideos(){
 }
 
 function renderVideos(){
-  const list=document.getElementById("videoList");list.innerHTML="";
+  const list=document.getElementById("videoList");
+  list.innerHTML="";
+
   if(!videos.length){
-    list.innerHTML='<div class="empty">এই ক্যাটাগরিতে এখনো কোনো ভিডিও নেই।</div>';return;
+    list.innerHTML='<div class="empty">এই ক্যাটাগরিতে এখনো কোনো ভিডিও নেই।</div>';
+    return;
   }
+
   videos.forEach(video=>{
-    const card=document.createElement("div");card.className="video-card";
+    const card=document.createElement("div");
+    card.className="video-card";
+
     const img=document.createElement("img");
-    img.className="thumbnail";img.src=video.thumbnail||"";
-    img.alt=video.title||"Video thumbnail";img.loading="lazy";
+    img.className="thumbnail";
+    img.src=video.thumbnail||"";
+    img.alt=video.title||"Video thumbnail";
+    img.loading="lazy";
     img.onerror=()=>{img.style.display="none"};
-    const content=document.createElement("div");content.className="video-content";
-    const title=document.createElement("h3");title.className="video-title";
+
+    const content=document.createElement("div");
+    content.className="video-content";
+
+    const title=document.createElement("h3");
+    title.className="video-title";
     title.textContent=video.title||"Untitled Video";
-    const meta=document.createElement("div");meta.className="video-meta";
-    const tag=document.createElement("span");tag.className="tag";
+
+    const meta=document.createElement("div");
+    meta.className="video-meta";
+
+    const tag=document.createElement("span");
+    tag.className="tag";
     const category=(settings.categories||[]).find(c=>c.id===video.categoryId);
     tag.textContent=category?.name||"Video";
-    const ads=document.createElement("span");ads.textContent=(video.adsRequired||2)+" Ads Required";
+
+    const ads=document.createElement("span");
+    ads.textContent=(video.adsRequired||2)+" Ads Required";
     meta.append(tag,ads);
-    const actions=document.createElement("div");actions.className="video-actions";
+
+    const actions=document.createElement("div");
+    actions.className="video-actions";
+
     const unlock=document.createElement("button");
-    unlock.className="unlock-btn";unlock.textContent="🔓 Unlock Video";
+    unlock.className="unlock-btn";
+    unlock.textContent="🔓 Unlock Video";
     unlock.onclick=()=>startUnlock(video.id);
+
     const watch=document.createElement("button");
-    watch.className="watch-btn";watch.textContent="▶ ভিডিও দেখুন";
+    watch.className="watch-btn";
+    watch.textContent="▶ ভিডিও দেখুন";
     watch.onclick=()=>openVideoBot(video.id);
-    actions.append(unlock,watch);content.append(title,meta,actions);
-    card.append(img,content);list.appendChild(card);
+
+    actions.append(unlock,watch);
+    content.append(title,meta,actions);
+    card.append(img,content);
+    list.appendChild(card);
   });
 }
 
@@ -366,33 +418,120 @@ function updatePagination(p){
   document.getElementById("prevBtn").disabled=currentPage<=1;
   document.getElementById("nextBtn").disabled=currentPage>=totalPages;
 }
+
 function changePage(direction){
   const next=currentPage+direction;
   if(next<1||next>totalPages)return;
-  currentPage=next;loadVideos();window.scrollTo({top:0,behavior:"smooth"});
-}
-function joinChannel(){
-  const url=settings.promotionalChannel?.url;
-  if(!url){showModal("Promotional Channel","চ্যানেল লিংক এখনো যোগ করা হয়নি।");return}
-  openExternal(url);
-}
-function openReferral(){
-  const user=tg?.initDataUnsafe?.user;
-  if(!user){showModal("Referral","Referral Link তৈরি করতে Telegram Mini App থেকে প্রবেশ করো।");return}
-  referralUrl=`https://t.me/${BOT_USERNAME}?start=ref_${user.id}`;
-  showModal("Referral System","তোমার Referral Link:\n"+referralUrl+
-    "\n\nবন্ধুদের সঙ্গে লিংকটি শেয়ার করো। সফল Referral-এর Reward Admin Panel থেকে নিয়ন্ত্রণ করা হবে।",true);
+  currentPage=next;
+  loadVideos();
+  window.scrollTo({top:0,behavior:"smooth"});
 }
 
-function startUnlock(videoId){
-  showModal("Video Unlock","এই ভিডিওর Unlock System এখনো Backend-এর সঙ্গে সংযুক্ত করা হয়নি।");
+function joinChannel(){
+  const url=settings.promotionalChannel?.url;
+  if(!url){
+    showModal("Promotional Channel","চ্যানেল লিংক এখনো যোগ করা হয়নি।");
+    return;
+  }
+  openExternal(url);
+}
+
+function openReferral(){
+  const user=tg?.initDataUnsafe?.user;
+  if(!user){
+    showModal("Referral","Referral Link তৈরি করতে Telegram Mini App থেকে প্রবেশ করো।");
+    return;
+  }
+
+  referralUrl=`https://t.me/${BOT_USERNAME}?start=ref_${user.id}`;
+
+  showModal(
+    "Referral System",
+    "তোমার Referral Link:\n"+referralUrl+
+    "\n\nবন্ধুদের সঙ্গে লিংকটি শেয়ার করো। সফল Referral-এর Reward Admin Panel থেকে নিয়ন্ত্রণ করা হবে।",
+    true
+  );
+}
+
+/* VIDEO UNLOCK: ১ ক্রেডিট কেটে ভিডিও লিংক ফেরত আনে */
+async function startUnlock(videoId){
+  if(unlockBusy)return;
+
+  if(!tg?.initData){
+    showModal("Telegram Required","ভিডিও আনলক করতে Telegram Mini App থেকে প্রবেশ করো।");
+    return;
+  }
+
+  if(!videoId){
+    showModal("Unlock Error","ভিডিওর ID পাওয়া যায়নি।");
+    return;
+  }
+
+  unlockBusy=true;
+
+  const buttons=document.querySelectorAll(".unlock-btn");
+  buttons.forEach(button=>{
+    button.disabled=true;
+    button.textContent="⏳ Unlocking...";
+  });
+
+  try{
+    const requestId=(window.crypto?.randomUUID)
+      ?window.crypto.randomUUID()
+      :"unlock_"+Date.now()+"_"+Math.random().toString(36).slice(2);
+
+    const res=await fetch(API+"/api/video/unlock",{
+      method:"POST",
+      headers,
+      body:JSON.stringify({
+        videoId:String(videoId),
+        requestId
+      })
+    });
+
+    const data=await res.json();
+
+    if(!res.ok||!data.success){
+      if(res.status===403){
+        throw new Error(data.error||"তোমার পর্যাপ্ত Credit নেই। Referral করে Credit সংগ্রহ করো।");
+      }
+      if(res.status===409){
+        throw new Error(data.error||"এই Unlock Request চলছে। কিছুক্ষণ পর আবার চেষ্টা করো।");
+      }
+      throw new Error(data.error||"ভিডিও আনলক করা যায়নি। আবার চেষ্টা করো।");
+    }
+
+    if(!data.videoUrl){
+      throw new Error("ভিডিওর লিংক পাওয়া যায়নি। Admin Panel-এ Video URL পরীক্ষা করো।");
+    }
+
+    showModal(
+      "🎉 Video Unlocked!",
+      "ভিডিও সফলভাবে আনলক হয়েছে।\n\nঅবশিষ্ট Credit: "+Number(data.credits??0)+
+      "\n\nভিডিওটি খুলতে নিচের Close চাপো।"
+    );
+
+    openExternal(data.videoUrl);
+
+  }catch(e){
+    console.error("Video unlock error:",e);
+    showModal("Unlock Failed",e.message||"ভিডিও আনলক করা যায়নি।");
+  }finally{
+    unlockBusy=false;
+    document.querySelectorAll(".unlock-btn").forEach(button=>{
+      button.disabled=false;
+      button.textContent="🔓 Unlock Video";
+    });
+  }
 }
 
 async function openVideoBot(videoId){
   const url=`https://t.me/${BOT_USERNAME}?start=v_${encodeURIComponent(videoId)}`;
+
   if(settings.ads?.adexiumEnabled!==false){
     await requestManualAd("video");
   }
+
   openExternal(url);
 }
 
@@ -400,16 +539,24 @@ function updateRewardUI(data){
   const completed=Number(data.completed)||0;
   const required=Math.max(1,Number(data.required)||50);
   const percent=Math.min(100,Math.floor(completed/required*100));
+
   document.getElementById("rewardBar").style.width=percent+"%";
   document.getElementById("rewardCount").textContent=`${completed} / ${required} Ads`;
   document.getElementById("rewardPercent").textContent=percent+"%";
+
   const button=document.getElementById("rewardButton");
   const result=document.getElementById("rewardResult");
+
   if(data.unlocked&&data.unlockUrl){
-    rewardUrl=data.unlockUrl;button.style.display="none";result.style.display="block";
-    document.getElementById("rewardMessage").textContent=data.unlockMessage||"অভিনন্দন! তোমার Unlock Link প্রস্তুত।";
+    rewardUrl=data.unlockUrl;
+    button.style.display="none";
+    result.style.display="block";
+    document.getElementById("rewardMessage").textContent=
+      data.unlockMessage||"অভিনন্দন! তোমার Unlock Link প্রস্তুত।";
   }else{
-    rewardUrl="";button.style.display="block";result.style.display="none";
+    rewardUrl="";
+    button.style.display="block";
+    result.style.display="none";
     button.disabled=!data.enabled||rewardBusy;
     button.textContent=rewardBusy?"⏳ Please wait...":"▶ Watch Ads";
   }
@@ -417,12 +564,20 @@ function updateRewardUI(data){
 
 async function loadRewardStatus(){
   if(!tg?.initData)return null;
+
   try{
     const res=await fetch(API+"/api/reward/status",{headers});
     const data=await res.json();
-    if(data.success){updateRewardUI(data);return data}
+
+    if(data.success){
+      updateRewardUI(data);
+      return data;
+    }
     return null;
-  }catch(e){console.error("Reward status error",e);return null}
+  }catch(e){
+    console.error("Reward status error",e);
+    return null;
+  }
 }
 
 async function verifyRewardTask(taskId){
@@ -431,27 +586,43 @@ async function verifyRewardTask(taskId){
     headers,
     body:JSON.stringify({taskId})
   });
+
   const data=await res.json();
-  if(!res.ok||!data.success)throw new Error(data.error||"Reward verification failed");
+
+  if(!res.ok||!data.success){
+    throw new Error(data.error||"Reward verification failed");
+  }
+
   updateRewardUI(data);
   return data;
 }
 
 async function watchRewardAd(){
   if(rewardBusy)return;
+
   if(!tg?.initData){
-    showModal("Telegram Required","Rewarded Ads দেখতে Telegram Mini App থেকে প্রবেশ করো।");return;
-  }
-  if(settings.ads?.adexiumEnabled===false){
-    showModal("Ads Disabled","Admin বিজ্ঞাপন বন্ধ রেখেছেন।");return;
-  }
-  if(!adexiumAds){
-    showModal("Ad Loading","Adexium SDK এখনো প্রস্তুত নয়। কিছুক্ষণ পর আবার চেষ্টা করো।");return;
+    showModal("Telegram Required","Rewarded Ads দেখতে Telegram Mini App থেকে প্রবেশ করো।");
+    return;
   }
 
-  rewardBusy=true;rewardTaskId=null;rewardAdReceived=false;rewardAdCompleted=false;
+  if(settings.ads?.adexiumEnabled===false){
+    showModal("Ads Disabled","Admin বিজ্ঞাপন বন্ধ রেখেছেন।");
+    return;
+  }
+
+  if(!adexiumAds){
+    showModal("Ad Loading","Adexium SDK এখনো প্রস্তুত নয়। কিছুক্ষণ পর আবার চেষ্টা করো।");
+    return;
+  }
+
+  rewardBusy=true;
+  rewardTaskId=null;
+  rewardAdReceived=false;
+  rewardAdCompleted=false;
+
   const button=document.getElementById("rewardButton");
-  button.disabled=true;button.textContent="⏳ Preparing Ad...";
+  button.disabled=true;
+  button.textContent="⏳ Preparing Ad...";
 
   try{
     button.textContent="⏳ Showing Ad...";
@@ -473,32 +644,49 @@ async function watchRewardAd(){
     console.error("Reward error:",e);
     showModal("Reward Error",e.message||"বিজ্ঞাপন যাচাই করা যায়নি।");
   }finally{
-    rewardBusy=false;rewardTaskId=null;rewardAdReceived=false;rewardAdCompleted=false;
+    rewardBusy=false;
+    rewardTaskId=null;
+    rewardAdReceived=false;
+    rewardAdCompleted=false;
     await loadRewardStatus();
     button.disabled=settings.reward?.enabled===false;
     if(!rewardUrl)button.textContent="▶ Watch Ads";
   }
 }
 
-function openRewardUrl(){if(rewardUrl)openExternal(rewardUrl)}
-async function copyRewardUrl(){if(rewardUrl)await copyText(rewardUrl)}
+function openRewardUrl(){
+  if(rewardUrl)openExternal(rewardUrl);
+}
+async function copyRewardUrl(){
+  if(rewardUrl)await copyText(rewardUrl);
+}
 
 function openExternal(url){
-  if(tg?.openTelegramLink&&url.startsWith("https://t.me/"))tg.openTelegramLink(url);
-  else if(tg?.openLink)tg.openLink(url);
-  else window.open(url,"_blank");
+  if(!url)return;
+
+  if(tg?.openTelegramLink&&url.startsWith("https://t.me/")){
+    tg.openTelegramLink(url);
+  }else if(tg?.openLink){
+    tg.openLink(url);
+  }else{
+    window.open(url,"_blank");
+  }
 }
 
 async function init(){
   await loadSettings();
   await loadVideos();
+
   if(tg?.initData){
     try{
       await fetch(API+"/api/me",{headers});
       await loadRewardStatus();
-    }catch(e){console.error("User registration error",e)}
+    }catch(e){
+      console.error("User registration error",e);
+    }
   }
 }
+
 init();
 </script>
 </body>
