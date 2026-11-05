@@ -746,6 +746,181 @@ app.get(
   }
 );
 
+/* Video unlock using referral credits */
+
+app.post(
+  "/api/video/unlock",
+  requireFirebase,
+  requireTelegramUser,
+  async (req, res) => {
+    try {
+      const user = req.telegramUser;
+
+      const videoId = String(
+        req.body?.videoId || ""
+      ).trim();
+
+      const requestId = String(
+        req.body?.requestId || ""
+      ).trim();
+
+      if (
+        !videoId ||
+        videoId.length > 150 ||
+        !/^[a-zA-Z0-9_-]+$/.test(videoId)
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid video ID"
+        });
+      }
+
+      if (
+        !requestId ||
+        requestId.length > 100 ||
+        !/^[a-zA-Z0-9_-]+$/.test(requestId)
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid request ID"
+        });
+      }
+
+      await saveTelegramUser(user);
+
+      const videoRef = db.ref(`videos/${videoId}`);
+      const videoSnap = await videoRef.once("value");
+
+      if (
+        !videoSnap.exists() ||
+        videoSnap.val()?.enabled === false
+      ) {
+        return res.status(404).json({
+          success: false,
+          error: "Video not found"
+        });
+      }
+
+      const video = videoSnap.val();
+
+      if (!video.videoUrl) {
+        return res.status(404).json({
+          success: false,
+          error: "Video URL not available"
+        });
+      }
+
+      /*
+       * Prevent duplicate requests from charging twice.
+       */
+
+      const requestHash = crypto
+        .createHash("sha256")
+        .update(String(user.id) + ":" + requestId)
+        .digest("hex");
+
+      const claimRef = db.ref(
+        `videoUnlockClaims/${requestHash}`
+      );
+
+      const claimResult = await claimRef.transaction(
+        current => {
+          if (current) return;
+
+          return {
+            userId: String(user.id),
+            videoId,
+            status: "processing",
+            createdAt: Date.now()
+          };
+        }
+      );
+
+      if (!claimResult.committed) {
+        return res.status(409).json({
+          success: false,
+          error: "This unlock request was already used"
+        });
+      }
+
+      /*
+       * One new request = one credit.
+       * Rewatching the same video also costs one credit.
+       */
+
+      const userRef = db.ref(`users/${user.id}`);
+
+      const chargeResult = await userRef.transaction(
+        current => {
+          if (!current) return;
+
+          const credits = Number(current.credits) || 0;
+
+          if (credits < 1) return;
+
+          current.credits = credits - 1;
+
+          current.videoUnlocks =
+            current.videoUnlocks || {};
+
+          current.videoUnlocks[videoId] =
+            (Number(current.videoUnlocks[videoId]) || 0) + 1;
+
+          current.lastVideoUnlockAt = Date.now();
+
+          return current;
+        }
+      );
+
+      if (!chargeResult.committed) {
+        await claimRef.update({
+          status: "failed",
+          reason: "Insufficient credits",
+          completedAt: Date.now()
+        });
+
+        return res.status(403).json({
+          success: false,
+          error: "Not enough credits",
+          credits: Number(
+            chargeResult.snapshot.val()?.credits
+          ) || 0
+        });
+      }
+
+      await claimRef.update({
+        status: "completed",
+        completedAt: Date.now()
+      });
+
+      const updatedUser = chargeResult.snapshot.val() || {};
+
+      console.log(
+        `Video unlocked: user=${user.id}, video=${videoId}, credits=${updatedUser.credits}`
+      );
+
+      return res.json({
+        success: true,
+        message: "Video unlocked successfully",
+        videoId,
+        videoUrl: video.videoUrl,
+        credits: Number(updatedUser.credits) || 0
+      });
+
+    } catch (error) {
+      console.error(
+        "Video unlock error:",
+        error.message
+      );
+
+      return res.status(500).json({
+        success: false,
+        error: "Could not unlock video"
+      });
+    }
+  }
+);
+
 /* Verify Mini App user */
 
 app.get(
