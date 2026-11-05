@@ -330,10 +330,6 @@ async function processReferral(
   try {
     const claimRef = db.ref(`referralClaims/${newId}`);
 
-    /*
-     * Check whether this user was already referred.
-     */
-
     const newUserRef = db.ref(`users/${newId}`);
     const newUserSnap = await newUserRef.once("value");
     const newUserData = newUserSnap.val() || {};
@@ -347,10 +343,6 @@ async function processReferral(
         reason: "User already referred by another person"
       };
     }
-
-    /*
-     * Check existing referral claim.
-     */
 
     const existingClaimSnap = await claimRef.once("value");
     let claim = existingClaimSnap.val();
@@ -370,15 +362,6 @@ async function processReferral(
         };
       }
     } else {
-      /*
-       * Only a user without a previous referral claim
-       * and without referredBy can receive a referral.
-       *
-       * We intentionally do NOT require isNewUser here.
-       * This fixes the case where /api/me created the
-       * Firebase user record before the /start webhook.
-       */
-
       if (newUserData.referredBy) {
         return {
           success: false,
@@ -428,11 +411,6 @@ async function processReferral(
         };
       }
 
-      /*
-       * Create one claim per referred Telegram user.
-       * The transaction prevents duplicate claims.
-       */
-
       const claimResult = await claimRef.transaction(
         current => {
           if (current) return;
@@ -467,13 +445,6 @@ async function processReferral(
       }
     }
 
-    /*
-     * Apply the reward once.
-     *
-     * users/{referrerId}/referrals/{newId}
-     * is the permanent duplicate-prevention marker.
-     */
-
     const reward = Number(claim.reward);
 
     if (
@@ -494,10 +465,6 @@ async function processReferral(
         if (!user) return;
 
         user.referrals = user.referrals || {};
-
-        /*
-         * If already rewarded, do not add credits again.
-         */
 
         if (user.referrals[newId]) {
           return user;
@@ -534,20 +501,11 @@ async function processReferral(
       }
     }
 
-    /*
-     * Save referral information to the new user.
-     */
-
     await newUserRef.update({
       referredBy: referrerId,
       referredAt:
         Number(claim.createdAt) || Date.now()
     });
-
-    /*
-     * Mark claim completed only after the reward
-     * has been safely applied.
-     */
 
     await claimRef.update({
       status: "completed",
@@ -625,6 +583,62 @@ function mergeSettings(saved = {}) {
       ...(saved.pagination || {})
     }
   };
+}
+
+/* Adexium task verification helper */
+
+async function verifyAdexiumTask(widgetId, taskId) {
+  const verifyUrl =
+    "https://bid.tgads.live/task/check/" +
+    encodeURIComponent(widgetId) + "/" +
+    encodeURIComponent(taskId);
+
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await fetch(verifyUrl, {
+        method: "GET",
+        headers: {
+          Accept: "application/json"
+        },
+        signal: AbortSignal.timeout(12000)
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Adexium HTTP ${response.status}`
+        );
+      }
+
+      const result = await response.json();
+
+      if (result.done === true) {
+        return {
+          verified: true,
+          result
+        };
+      }
+
+      return {
+        verified: false,
+        result
+      };
+
+    } catch (error) {
+      lastError = error;
+
+      if (attempt < 3) {
+        await new Promise(resolve =>
+          setTimeout(resolve, 1000)
+        );
+      }
+    }
+  }
+
+  throw lastError || new Error(
+    "Adexium verification failed"
+  );
 }
 
 /* Adexium Reward progress */
@@ -828,6 +842,457 @@ app.get(
   }
 );
 
+/* Start a new video Ad Unlock session */
+
+app.post(
+  "/api/video/ad/start",
+  requireFirebase,
+  requireTelegramUser,
+  async (req, res) => {
+    try {
+      const user = req.telegramUser;
+
+      const videoId = String(
+        req.body?.videoId || ""
+      ).trim();
+
+      if (
+        !videoId ||
+        videoId.length > 150 ||
+        !/^[a-zA-Z0-9_-]+$/.test(videoId)
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid video ID"
+        });
+      }
+
+      await saveTelegramUser(user);
+
+      const [videoSnap, settingsSnap] =
+        await Promise.all([
+          db.ref(`videos/${videoId}`).once("value"),
+          db.ref("settings").once("value")
+        ]);
+
+      if (
+        !videoSnap.exists() ||
+        videoSnap.val()?.enabled === false
+      ) {
+        return res.status(404).json({
+          success: false,
+          error: "Video not found"
+        });
+      }
+
+      const settings = mergeSettings(
+        settingsSnap.val() || {}
+      );
+
+      if (settings.ads.adexiumEnabled === false) {
+        return res.status(403).json({
+          success: false,
+          error: "Adexium ads are disabled"
+        });
+      }
+
+      const widgetId =
+        settings.ads.adexiumWidgetId;
+
+      if (!widgetId || widgetId.length > 150) {
+        return res.status(500).json({
+          success: false,
+          error: "Adexium Widget ID is invalid"
+        });
+      }
+
+      const video = videoSnap.val();
+
+      const required = Math.max(
+        1,
+        Math.min(
+          100,
+          Number(video.adsRequired) ||
+          settings.ads.adsPerVideo
+        )
+      );
+
+      const attemptId =
+        crypto.randomBytes(24).toString("hex");
+
+      const now = Date.now();
+
+      await db
+        .ref(
+          `videoAdUnlockAttempts/${user.id}/${attemptId}`
+        )
+        .set({
+          userId: String(user.id),
+          videoId,
+          required,
+          completed: 0,
+          taskHashes: {},
+          status: "active",
+          createdAt: now,
+          expiresAt: now + 30 * 60 * 1000
+        });
+
+      return res.json({
+        success: true,
+        attemptId,
+        videoId,
+        required,
+        completed: 0,
+        message: "Ad unlock session started"
+      });
+
+    } catch (error) {
+      console.error(
+        "Video ad start error:",
+        error.message
+      );
+
+      return res.status(500).json({
+        success: false,
+        error: "Could not start video ad unlock"
+      });
+    }
+  }
+);
+
+/* Verify one video Ad task */
+
+app.post(
+  "/api/video/ad/verify",
+  requireFirebase,
+  requireTelegramUser,
+  async (req, res) => {
+    try {
+      const user = req.telegramUser;
+
+      const videoId = String(
+        req.body?.videoId || ""
+      ).trim();
+
+      const attemptId = String(
+        req.body?.attemptId || ""
+      ).trim();
+
+      const taskId = String(
+        req.body?.taskId || ""
+      ).trim();
+
+      if (
+        !videoId ||
+        !/^[a-zA-Z0-9_-]{1,150}$/.test(videoId)
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid video ID"
+        });
+      }
+
+      if (
+        !attemptId ||
+        !/^[a-f0-9]{48}$/.test(attemptId)
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid unlock session"
+        });
+      }
+
+      if (
+        !taskId ||
+        taskId.length > 250 ||
+        !/^[a-zA-Z0-9_-]+$/.test(taskId)
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid Adexium task ID"
+        });
+      }
+
+      await saveTelegramUser(user);
+
+      const attemptRef = db.ref(
+        `videoAdUnlockAttempts/${user.id}/${attemptId}`
+      );
+
+      const [attemptSnap, videoSnap, settingsSnap] =
+        await Promise.all([
+          attemptRef.once("value"),
+          db.ref(`videos/${videoId}`).once("value"),
+          db.ref("settings").once("value")
+        ]);
+
+      if (!attemptSnap.exists()) {
+        return res.status(404).json({
+          success: false,
+          error: "Unlock session not found"
+        });
+      }
+
+      const attempt = attemptSnap.val();
+
+      if (
+        String(attempt.userId) !== String(user.id) ||
+        String(attempt.videoId) !== videoId
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Unlock session mismatch"
+        });
+      }
+
+      if (attempt.status !== "active") {
+        return res.status(409).json({
+          success: false,
+          error: "This unlock session is no longer active"
+        });
+      }
+
+      if (
+        Number(attempt.expiresAt) < Date.now()
+      ) {
+        await attemptRef.update({
+          status: "expired",
+          expiredAt: Date.now()
+        });
+
+        return res.status(410).json({
+          success: false,
+          error: "Unlock session expired. Start again."
+        });
+      }
+
+      if (
+        !videoSnap.exists() ||
+        videoSnap.val()?.enabled === false
+      ) {
+        return res.status(404).json({
+          success: false,
+          error: "Video not found"
+        });
+      }
+
+      const video = videoSnap.val();
+
+      if (!video.videoUrl) {
+        return res.status(404).json({
+          success: false,
+          error: "Video URL not available"
+        });
+      }
+
+      const settings = mergeSettings(
+        settingsSnap.val() || {}
+      );
+
+      if (settings.ads.adexiumEnabled === false) {
+        return res.status(403).json({
+          success: false,
+          error: "Adexium ads are disabled"
+        });
+      }
+
+      const widgetId =
+        settings.ads.adexiumWidgetId;
+
+      if (!widgetId) {
+        return res.status(500).json({
+          success: false,
+          error: "Adexium Widget ID is missing"
+        });
+      }
+
+      /*
+       * First verify the task directly with Adexium.
+       */
+
+      const verification = await verifyAdexiumTask(
+        widgetId,
+        taskId
+      );
+
+      if (!verification.verified) {
+        return res.status(403).json({
+          success: false,
+          verified: false,
+          error: "Adexium has not confirmed this ad task"
+        });
+      }
+
+      /*
+       * One Adexium task can only be used once
+       * across the video unlock system.
+       */
+
+      const taskHash = crypto
+        .createHash("sha256")
+        .update(taskId)
+        .digest("hex");
+
+      const globalClaimRef = db.ref(
+        `adexiumVideoTaskClaims/${taskHash}`
+      );
+
+      const globalClaimResult =
+        await globalClaimRef.transaction(current => {
+          if (current) return;
+
+          return {
+            userId: String(user.id),
+            videoId,
+            attemptId,
+            status: "claimed",
+            createdAt: Date.now()
+          };
+        });
+
+      if (!globalClaimResult.committed) {
+        return res.status(409).json({
+          success: false,
+          error: "This ad task has already been used"
+        });
+      }
+
+      /*
+       * Credit the verified task to this session.
+       */
+
+      let finalCompleted = 0;
+      let sessionUnlocked = false;
+
+      const progressResult =
+        await attemptRef.transaction(current => {
+          if (!current) return;
+
+          if (
+            current.status !== "active" ||
+            String(current.userId) !== String(user.id) ||
+            String(current.videoId) !== videoId ||
+            Number(current.expiresAt) < Date.now()
+          ) {
+            return;
+          }
+
+          current.taskHashes =
+            current.taskHashes || {};
+
+          if (current.taskHashes[taskHash]) {
+            return;
+          }
+
+          current.taskHashes[taskHash] = true;
+
+          current.completed =
+            (Number(current.completed) || 0) + 1;
+
+          current.updatedAt = Date.now();
+
+          if (
+            current.completed >=
+            Number(current.required)
+          ) {
+            current.completed =
+              Number(current.required);
+
+            current.status = "completed";
+            current.completedAt = Date.now();
+          }
+
+          return current;
+        });
+
+      const updatedAttempt =
+        progressResult.snapshot.val();
+
+      if (!progressResult.committed || !updatedAttempt) {
+        await globalClaimRef.update({
+          status: "rejected",
+          rejectedAt: Date.now()
+        });
+
+        return res.status(409).json({
+          success: false,
+          error: "Could not update this unlock session"
+        });
+      }
+
+      finalCompleted =
+        Number(updatedAttempt.completed) || 0;
+
+      sessionUnlocked =
+        updatedAttempt.status === "completed";
+
+      await globalClaimRef.update({
+        status: "credited",
+        creditedAt: Date.now()
+      });
+
+      console.log(
+        `Video ad verified: user=${user.id}, video=${videoId}, completed=${finalCompleted}/${updatedAttempt.required}`
+      );
+
+      /*
+       * Video URL is returned only after every
+       * required ad task has been verified.
+       */
+
+      if (sessionUnlocked) {
+        await db
+          .ref(`users/${user.id}/videoUnlocks/${videoId}`)
+          .transaction(value =>
+            (Number(value) || 0) + 1
+          );
+
+        await db
+          .ref(`users/${user.id}`)
+          .update({
+            lastVideoUnlockAt: Date.now()
+          });
+
+        return res.json({
+          success: true,
+          verified: true,
+          unlocked: true,
+          videoId,
+          completed: finalCompleted,
+          required: Number(updatedAttempt.required),
+          videoUrl: video.videoUrl,
+          message: "Video unlocked successfully"
+        });
+      }
+
+      return res.json({
+        success: true,
+        verified: true,
+        unlocked: false,
+        videoId,
+        completed: finalCompleted,
+        required: Number(updatedAttempt.required),
+        remaining: Math.max(
+          0,
+          Number(updatedAttempt.required) - finalCompleted
+        ),
+        message: "Ad successfully verified"
+      });
+
+    } catch (error) {
+      console.error(
+        "Video ad verification error:",
+        error.message
+      );
+
+      return res.status(500).json({
+        success: false,
+        error: "Could not verify video ad"
+      });
+    }
+  }
+);
+
 /* Video unlock using referral credits */
 
 app.post(
@@ -969,7 +1434,7 @@ app.post(
       const updatedUser = chargeResult.snapshot.val() || {};
 
       console.log(
-        `Video unlocked: user=${user.id}, video=${videoId}, credits=${updatedUser.credits}`
+        `Video unlocked by credit: user=${user.id}, video=${videoId}, credits=${updatedUser.credits}`
       );
 
       return res.json({
@@ -1067,7 +1532,7 @@ app.get(
   }
 );
 
-/* Verify Adexium task and credit reward */
+/* Verify Adexium task and credit separate 50 Ads reward */
 
 app.post(
   "/api/reward/verify",
@@ -1133,34 +1598,12 @@ app.post(
         });
       }
 
-      const verifyUrl =
-        "https://bid.tgads.live/task/check/" +
-        encodeURIComponent(wid) + "/" +
-        encodeURIComponent(taskId);
+      const verification = await verifyAdexiumTask(
+        wid,
+        taskId
+      );
 
-      const verifyResponse = await fetch(verifyUrl, {
-        method: "GET",
-        headers: {
-          "Accept": "application/json"
-        },
-        signal: AbortSignal.timeout(12000)
-      });
-
-      if (!verifyResponse.ok) {
-        console.error(
-          "Adexium verification HTTP status:",
-          verifyResponse.status
-        );
-
-        return res.status(502).json({
-          success: false,
-          error: "Adexium verification service unavailable"
-        });
-      }
-
-      const verification = await verifyResponse.json();
-
-      if (verification.done !== true) {
+      if (!verification.verified) {
         return res.status(403).json({
           success: false,
           error: "Adexium has not confirmed this ad task"
@@ -1191,6 +1634,7 @@ app.post(
       const claim = claimResult.snapshot.val();
 
       if (
+        !claimResult.committed ||
         !claim ||
         String(claim.userId) !== String(user.id)
       ) {
@@ -1347,8 +1791,6 @@ app.put(
         }
       }
 
-      /* Validate reward settings */
-
       if (updates.reward) {
         const currentSnap = await db
           .ref("settings/reward")
@@ -1425,8 +1867,6 @@ app.put(
         };
       }
 
-      /* Validate referral settings */
-
       if (updates.referral) {
         const currentSnap = await db
           .ref("settings/referral")
@@ -1495,8 +1935,6 @@ app.put(
           instructions
         };
       }
-
-      /* Save Adexium settings only */
 
       if (updates.ads) {
         const currentSnap = await db
@@ -1606,86 +2044,6 @@ app.get(
   }
 );
 
-/* Admin add video */
-
-app.post(
-  "/api/admin/videos",
-  requireFirebase,
-  requireAdmin,
-  async (req, res) => {
-    try {
-      const {
-        title,
-        description,
-        thumbnail,
-        videoUrl,
-        categoryId,
-        adsRequired
-      } = req.body;
-
-      if (!title || !thumbnail || !videoUrl) {
-        return res.status(400).json({
-          success: false,
-          error:
-            "Title, thumbnail and video URL are required"
-        });
-      }
-
-      const videoRef = db.ref("videos").push();
-
-      const video = {
-        title: String(title).slice(0, 200),
-
-        description:
-          String(description || "").slice(0, 2000),
-
-        thumbnail: String(thumbnail),
-        videoUrl: String(videoUrl),
-
-        categoryId:
-          String(categoryId || "premium"),
-
-        adsRequired: Math.max(
-          1,
-          Math.min(100, Number(adsRequired) || 2)
-        ),
-
-        enabled: true,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
-
-      await videoRef.set(video);
-
-      let notifiedUsers = 0;
-
-      try {
-        notifiedUsers = await notifyAllUsers({
-          id: videoRef.key,
-          ...video
-        });
-      } catch (error) {
-        console.error(
-          "Notification error:",
-          error.message
-        );
-      }
-
-      res.json({
-        success: true,
-        videoId: videoRef.key,
-        notifiedUsers,
-        message: "Video added"
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-  }
-);
-
 /* Notify users about new video */
 
 async function notifyAllUsers(video) {
@@ -1745,6 +2103,96 @@ async function notifyAllUsers(video) {
   return ids.length;
 }
 
+/* Admin add video */
+
+app.post(
+  "/api/admin/videos",
+  requireFirebase,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const {
+        title,
+        description,
+        thumbnail,
+        videoUrl,
+        categoryId,
+        adsRequired
+      } = req.body;
+
+      if (!title || !thumbnail || !videoUrl) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Title, thumbnail and video URL are required"
+        });
+      }
+
+      const required = Number(adsRequired);
+
+      if (
+        !Number.isInteger(required) ||
+        required < 1 ||
+        required > 100
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Ads Required must be between 1 and 100"
+        });
+      }
+
+      const videoRef = db.ref("videos").push();
+
+      const video = {
+        title: String(title).slice(0, 200),
+
+        description:
+          String(description || "").slice(0, 2000),
+
+        thumbnail: String(thumbnail),
+        videoUrl: String(videoUrl),
+
+        categoryId:
+          String(categoryId || "premium"),
+
+        adsRequired: required,
+
+        enabled: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+
+      await videoRef.set(video);
+
+      let notifiedUsers = 0;
+
+      try {
+        notifiedUsers = await notifyAllUsers({
+          id: videoRef.key,
+          ...video
+        });
+      } catch (error) {
+        console.error(
+          "Notification error:",
+          error.message
+        );
+      }
+
+      res.json({
+        success: true,
+        videoId: videoRef.key,
+        notifiedUsers,
+        message: "Video added"
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+);
+
 /* Admin edit video */
 
 app.put(
@@ -1784,10 +2232,20 @@ app.put(
       }
 
       if (updates.adsRequired !== undefined) {
-        updates.adsRequired = Math.max(
-          1,
-          Math.min(100, Number(updates.adsRequired) || 1)
-        );
+        const required = Number(updates.adsRequired);
+
+        if (
+          !Number.isInteger(required) ||
+          required < 1 ||
+          required > 100
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: "Ads Required must be between 1 and 100"
+          });
+        }
+
+        updates.adsRequired = required;
       }
 
       await ref.update(updates);
@@ -1931,11 +2389,6 @@ app.post(
           message.from,
           payload
         );
-
-        /*
-         * Referral is processed immediately when
-         * Telegram receives /start ref_USER_ID.
-         */
 
         const referralResult = await processReferral(
           message.from.id,
