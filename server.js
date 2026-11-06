@@ -1,4 +1,3 @@
-
 const express = require("express");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
@@ -16,8 +15,20 @@ const PUBLIC_URL = process.env.PUBLIC_URL || "";
 const VIDEO_BOT_USERNAME = process.env.VIDEO_BOT_USERNAME || "";
 const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || "";
 
-const ADEXIUM_DEFAULT_WID =
+/* Adexium Widget IDs */
+
+const ADEXIUM_REWARD_WID =
   "d7ac754e-70bc-484b-8346-75eb7b5fa3b6";
+
+const ADEXIUM_AUTO_WID =
+  "5ee6c127-84ba-4b38-a1e1-564e145ae21d";
+
+const ADEXIUM_VIDEO_WID =
+  "f07e2a5c-104d-4d72-9eff-987e997ffcdb";
+
+/* Legacy compatibility */
+
+const ADEXIUM_DEFAULT_WID = ADEXIUM_REWARD_WID;
 
 let db;
 let firebaseReady = false;
@@ -58,7 +69,17 @@ const DEFAULT_SETTINGS = {
 
   ads: {
     adexiumEnabled: true,
-    adexiumWidgetId: ADEXIUM_DEFAULT_WID,
+
+    autoWidgetId: ADEXIUM_AUTO_WID,
+    videoWidgetId: ADEXIUM_VIDEO_WID,
+    rewardWidgetId: ADEXIUM_REWARD_WID,
+
+    // Old setting compatibility
+    adexiumWidgetId: ADEXIUM_VIDEO_WID,
+
+    autoFirstAdSeconds: 30,
+    autoIntervalSeconds: 90,
+
     adsPerVideo: 2
   },
 
@@ -539,6 +560,12 @@ async function processReferral(
 function mergeSettings(saved = {}) {
   const savedAds = saved.ads || {};
 
+  const legacyWidgetId =
+    String(
+      savedAds.adexiumWidgetId ||
+      ADEXIUM_VIDEO_WID
+    );
+
   return {
     ...DEFAULT_SETTINGS,
     ...saved,
@@ -562,11 +589,46 @@ function mergeSettings(saved = {}) {
       adexiumEnabled:
         savedAds.adexiumEnabled !== false,
 
+      autoWidgetId:
+        String(
+          savedAds.autoWidgetId ||
+          ADEXIUM_AUTO_WID
+        ),
+
+      videoWidgetId:
+        String(
+          savedAds.videoWidgetId ||
+          legacyWidgetId
+        ),
+
+      rewardWidgetId:
+        String(
+          savedAds.rewardWidgetId ||
+          ADEXIUM_REWARD_WID
+        ),
+
+      // Old frontend compatibility
       adexiumWidgetId:
         String(
-          savedAds.adexiumWidgetId ||
-          ADEXIUM_DEFAULT_WID
+          savedAds.videoWidgetId ||
+          legacyWidgetId
         ),
+
+      autoFirstAdSeconds: Math.max(
+        5,
+        Math.min(
+          3600,
+          Number(savedAds.autoFirstAdSeconds) || 30
+        )
+      ),
+
+      autoIntervalSeconds: Math.max(
+        10,
+        Math.min(
+          3600,
+          Number(savedAds.autoIntervalSeconds) || 90
+        )
+      ),
 
       adsPerVideo: Math.max(
         1,
@@ -896,13 +958,14 @@ app.post(
         });
       }
 
+      // Video unlock uses Widget ID 3
       const widgetId =
-        settings.ads.adexiumWidgetId;
+        settings.ads.videoWidgetId;
 
       if (!widgetId || widgetId.length > 150) {
         return res.status(500).json({
           success: false,
-          error: "Adexium Widget ID is invalid"
+          error: "Video Adexium Widget ID is invalid"
         });
       }
 
@@ -929,6 +992,7 @@ app.post(
         .set({
           userId: String(user.id),
           videoId,
+          widgetId,
           required,
           completed: 0,
           taskHashes: {},
@@ -941,6 +1005,7 @@ app.post(
         success: true,
         attemptId,
         videoId,
+        widgetId,
         required,
         completed: 0,
         message: "Ad unlock session started"
@@ -1096,19 +1161,19 @@ app.post(
         });
       }
 
+      // Use the Widget ID saved in this unlock attempt.
+      // This prevents a settings change from changing
+      // the verification widget midway through an attempt.
       const widgetId =
-        settings.ads.adexiumWidgetId;
+        attempt.widgetId ||
+        settings.ads.videoWidgetId;
 
       if (!widgetId) {
         return res.status(500).json({
           success: false,
-          error: "Adexium Widget ID is missing"
+          error: "Video Adexium Widget ID is missing"
         });
       }
-
-      /*
-       * First verify the task directly with Adexium.
-       */
 
       const verification = await verifyAdexiumTask(
         widgetId,
@@ -1122,11 +1187,6 @@ app.post(
           error: "Adexium has not confirmed this ad task"
         });
       }
-
-      /*
-       * One Adexium task can only be used once
-       * across the video unlock system.
-       */
 
       const taskHash = crypto
         .createHash("sha256")
@@ -1145,6 +1205,7 @@ app.post(
             userId: String(user.id),
             videoId,
             attemptId,
+            widgetId,
             status: "claimed",
             createdAt: Date.now()
           };
@@ -1156,10 +1217,6 @@ app.post(
           error: "This ad task has already been used"
         });
       }
-
-      /*
-       * Credit the verified task to this session.
-       */
 
       let finalCompleted = 0;
       let sessionUnlocked = false;
@@ -1234,11 +1291,6 @@ app.post(
       console.log(
         `Video ad verified: user=${user.id}, video=${videoId}, completed=${finalCompleted}/${updatedAttempt.required}`
       );
-
-      /*
-       * Video URL is returned only after every
-       * required ad task has been verified.
-       */
 
       if (sessionUnlocked) {
         await db
@@ -1589,12 +1641,13 @@ app.post(
         });
       }
 
-      const wid = settings.ads.adexiumWidgetId;
+      // 50 Ads Reward uses Widget ID 1
+      const wid = settings.ads.rewardWidgetId;
 
       if (!wid || wid.length > 150) {
         return res.status(500).json({
           success: false,
-          error: "Adexium Widget ID is invalid"
+          error: "Reward Adexium Widget ID is invalid"
         });
       }
 
@@ -1625,6 +1678,7 @@ app.post(
 
           return {
             userId: String(user.id),
+            widgetId: wid,
             createdAt: Date.now(),
             status: "claimed"
           };
@@ -1941,21 +1995,54 @@ app.put(
           .ref("settings/ads")
           .once("value");
 
-        const current = currentSnap.val() || {};
+        const current = {
+          ...DEFAULT_SETTINGS.ads,
+          ...(currentSnap.val() || {})
+        };
+
         const incoming = updates.ads;
 
-        const widgetId =
-          incoming.adexiumWidgetId !== undefined
-            ? String(incoming.adexiumWidgetId).trim()
-            : String(
-                current.adexiumWidgetId ||
-                ADEXIUM_DEFAULT_WID
-              );
+        // Legacy Admin Panel compatibility:
+        // adexiumWidgetId is treated as videoWidgetId.
+        const autoWidgetId = String(
+          incoming.autoWidgetId !== undefined
+            ? incoming.autoWidgetId
+            : current.autoWidgetId || ADEXIUM_AUTO_WID
+        ).trim();
 
-        if (!widgetId || widgetId.length > 150) {
+        const videoWidgetId = String(
+          incoming.videoWidgetId !== undefined
+            ? incoming.videoWidgetId
+            : incoming.adexiumWidgetId !== undefined
+              ? incoming.adexiumWidgetId
+              : current.videoWidgetId ||
+                current.adexiumWidgetId ||
+                ADEXIUM_VIDEO_WID
+        ).trim();
+
+        const rewardWidgetId = String(
+          incoming.rewardWidgetId !== undefined
+            ? incoming.rewardWidgetId
+            : current.rewardWidgetId || ADEXIUM_REWARD_WID
+        ).trim();
+
+        const widgetIds = [
+          autoWidgetId,
+          videoWidgetId,
+          rewardWidgetId
+        ];
+
+        if (
+          widgetIds.some(
+            id =>
+              !id ||
+              id.length > 150 ||
+              !/^[a-zA-Z0-9_-]+$/.test(id)
+          )
+        ) {
           return res.status(400).json({
             success: false,
-            error: "Invalid Adexium Widget ID"
+            error: "One or more Adexium Widget IDs are invalid"
           });
         }
 
@@ -1976,6 +2063,38 @@ app.put(
           });
         }
 
+        const autoFirstAdSeconds =
+          incoming.autoFirstAdSeconds !== undefined
+            ? Number(incoming.autoFirstAdSeconds)
+            : Number(current.autoFirstAdSeconds) || 30;
+
+        const autoIntervalSeconds =
+          incoming.autoIntervalSeconds !== undefined
+            ? Number(incoming.autoIntervalSeconds)
+            : Number(current.autoIntervalSeconds) || 90;
+
+        if (
+          !Number.isInteger(autoFirstAdSeconds) ||
+          autoFirstAdSeconds < 5 ||
+          autoFirstAdSeconds > 3600
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: "First automatic ad delay must be 5-3600 seconds"
+          });
+        }
+
+        if (
+          !Number.isInteger(autoIntervalSeconds) ||
+          autoIntervalSeconds < 10 ||
+          autoIntervalSeconds > 3600
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: "Automatic ad interval must be 10-3600 seconds"
+          });
+        }
+
         updates.ads = {
           adexiumEnabled:
             incoming.adexiumEnabled !== undefined
@@ -1983,7 +2102,15 @@ app.put(
                 incoming.adexiumEnabled === "true"
               : current.adexiumEnabled !== false,
 
-          adexiumWidgetId: widgetId,
+          autoWidgetId,
+          videoWidgetId,
+          rewardWidgetId,
+
+          // Old frontend compatibility
+          adexiumWidgetId: videoWidgetId,
+
+          autoFirstAdSeconds,
+          autoIntervalSeconds,
           adsPerVideo
         };
       }
