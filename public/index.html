@@ -157,16 +157,30 @@ if(tg){tg.ready();tg.expand()}
 
 const API="";
 const BOT_USERNAME="viralbox9_bot";
-const ADEXIUM_DEFAULT_WID="d7ac754e-70bc-484b-8346-75eb7b5fa3b6";
+
+/* তিনটি আলাদা Adexium Widget ID */
+const ADEXIUM_IDS={
+  auto:"5ee6c127-84ba-4b38-a1e1-564e145ae21d",
+  video:"f07e2a5c-104d-4d72-9eff-987e997ffcdb",
+  reward:"d7ac754e-70bc-484b-8346-75eb7b5fa3b6"
+};
+
+const AUTO_FIRST_SECONDS=30;
+const AUTO_INTERVAL_SECONDS=90;
 
 let currentPage=1,totalPages=1,currentCategory="all";
 let settings={},videos=[],rewardUrl="",rewardBusy=false,referralUrl="";
-let adexiumAds=null,adexiumStarted=false;
+
+let autoAdWidget=null;
+let videoAdWidget=null;
+let rewardAdWidget=null;
+
+let autoAdStarted=false;
 let manualAdBusy=false;
-let currentAdResolve=null;
-let currentAdTaskId=null;
 let unlockBusy=false;
 let videoAdBusy=false;
+
+const manualAdStates=new Map();
 
 const headers={
   "Content-Type":"application/json",
@@ -188,9 +202,13 @@ async function copyText(text){
       await navigator.clipboard.writeText(text);
     }else{
       const area=document.createElement("textarea");
-      area.value=text;area.style.position="fixed";area.style.opacity="0";
-      document.body.appendChild(area);area.select();
-      document.execCommand("copy");area.remove();
+      area.value=text;
+      area.style.position="fixed";
+      area.style.opacity="0";
+      document.body.appendChild(area);
+      area.select();
+      document.execCommand("copy");
+      area.remove();
     }
     showModal("Copied Successfully","লিংকটি কপি হয়েছে।");
   }catch(e){
@@ -199,104 +217,207 @@ async function copyText(text){
 }
 async function copyReferral(){if(referralUrl)await copyText(referralUrl)}
 
+/* --------------------------------
+   ADEXIUM MANUAL WIDGET INITIALIZER
+--------------------------------- */
+
+function finishManualAd(widget,completed){
+  const state=manualAdStates.get(widget);
+  if(!state||state.finished)return;
+
+  state.finished=true;
+  clearTimeout(state.timeout);
+
+  const resolve=state.resolve;
+  const taskId=state.taskId;
+
+  manualAdStates.delete(widget);
+  manualAdBusy=false;
+
+  resolve({
+    completed:!!completed,
+    taskId:taskId||null
+  });
+}
+
+function createManualAdWidget(widgetId,label){
+  if(typeof window.AdexiumWidget!=="function"){
+    console.warn("Adexium SDK unavailable:",label);
+    return null;
+  }
+
+  try{
+    const widget=new window.AdexiumWidget({
+      wid:widgetId,
+      adFormat:"interstitial",
+      debug:false
+    });
+
+    widget.on("adReceived",ad=>{
+      const state=manualAdStates.get(widget);
+      if(!state||state.finished)return;
+
+      const taskId=ad?.id;
+
+      if(!taskId){
+        console.error(label+" ad task ID missing");
+        finishManualAd(widget,false);
+        return;
+      }
+
+      state.taskId=String(taskId);
+
+      try{
+        widget.displayAd(ad);
+      }catch(e){
+        console.error(label+" display error:",e);
+        finishManualAd(widget,false);
+      }
+    });
+
+    widget.on("adPlaybackCompleted",()=>{
+      const state=manualAdStates.get(widget);
+      if(state&&state.taskId){
+        finishManualAd(widget,true);
+      }
+    });
+
+    widget.on("noAdFound",()=>{
+      finishManualAd(widget,false);
+    });
+
+    widget.on("adClosed",()=>{
+      const state=manualAdStates.get(widget);
+      if(state&&!state.taskId){
+        finishManualAd(widget,false);
+      }
+    });
+
+    console.log(label+" Adexium widget initialized");
+    return widget;
+
+  }catch(e){
+    console.error(label+" Adexium initialization error:",e);
+    return null;
+  }
+}
+
+function requestManualAd(widget){
+  return new Promise(resolve=>{
+    if(!widget||manualAdBusy){
+      resolve({completed:false,taskId:null});
+      return;
+    }
+
+    if(typeof widget.requestAd!=="function"){
+      console.error("Adexium requestAd API unavailable");
+      resolve({completed:false,taskId:null});
+      return;
+    }
+
+    manualAdBusy=true;
+
+    const state={
+      resolve,
+      taskId:null,
+      finished:false,
+      timeout:null
+    };
+
+    manualAdStates.set(widget,state);
+
+    state.timeout=setTimeout(()=>{
+      finishManualAd(widget,false);
+    },60000);
+
+    try{
+      widget.requestAd("interstitial");
+    }catch(e){
+      console.error("Adexium ad request error:",e);
+      finishManualAd(widget,false);
+    }
+  });
+}
+
+/* --------------------------------
+   AUTOMATIC INTERSTITIAL WIDGET
+--------------------------------- */
+
+function initAutomaticAds(){
+  if(autoAdStarted)return;
+
+  if(settings.ads?.adexiumEnabled===false){
+    console.log("Adexium ads disabled by admin");
+    return;
+  }
+
+  if(typeof window.AdexiumWidget!=="function"){
+    console.warn("Adexium SDK not loaded for automatic ads");
+    return;
+  }
+
+  try{
+    const widgetId=settings.ads?.autoWidgetId||ADEXIUM_IDS.auto;
+
+    autoAdWidget=new window.AdexiumWidget({
+      wid:widgetId,
+      adFormat:"interstitial",
+      firstAdImpressionIntervalInSeconds:
+        Number(settings.ads?.autoFirstAdSeconds)||AUTO_FIRST_SECONDS,
+      adImpressionIntervalInSeconds:
+        Number(settings.ads?.autoIntervalSeconds)||AUTO_INTERVAL_SECONDS,
+      debug:false
+    });
+
+    autoAdWidget.autoMode();
+    autoAdStarted=true;
+
+    console.log("Automatic Adexium ads started");
+
+  }catch(e){
+    console.error("Automatic Adexium initialization error:",e);
+    autoAdWidget=null;
+  }
+}
+
+/* --------------------------------
+   INITIALIZE ALL THREE WIDGETS
+--------------------------------- */
+
 function initAdexium(){
-  if(adexiumStarted||settings.ads?.adexiumEnabled===false)return;
+  if(settings.ads?.adexiumEnabled===false)return;
 
   if(typeof window.AdexiumWidget!=="function"){
     console.warn("Adexium SDK not loaded");
     return;
   }
 
-  try{
-    adexiumAds=new window.AdexiumWidget({
-      wid:settings.ads?.adexiumWidgetId||ADEXIUM_DEFAULT_WID,
-      adFormat:"interstitial",
-      debug:false
-    });
-
-    adexiumAds.on("adReceived",ad=>{
-      if(!currentAdResolve)return;
-
-      const taskId=ad?.id;
-      if(!taskId){
-        console.warn("Adexium task ID missing");
-        return;
-      }
-
-      currentAdTaskId=String(taskId);
-
-      try{
-        adexiumAds.displayAd(ad);
-      }catch(e){
-        console.error("Ad display error",e);
-        finishCurrentAd(false);
-      }
-    });
-
-    adexiumAds.on("adPlaybackCompleted",()=>{
-      if(currentAdResolve&&currentAdTaskId){
-        finishCurrentAd(true);
-      }
-    });
-
-    adexiumAds.on("noAdFound",()=>{
-      finishCurrentAd(false);
-    });
-
-    adexiumStarted=true;
-    console.log("Adexium initialized without automatic ads");
-  }catch(e){
-    console.error("Adexium init error",e);
-    adexiumAds=null;
+  if(!videoAdWidget){
+    videoAdWidget=createManualAdWidget(
+      settings.ads?.videoWidgetId||ADEXIUM_IDS.video,
+      "Video Unlock"
+    );
   }
+
+  if(!rewardAdWidget){
+    rewardAdWidget=createManualAdWidget(
+      settings.ads?.rewardWidgetId||ADEXIUM_IDS.reward,
+      "Special Reward"
+    );
+  }
+
+  initAutomaticAds();
 }
 
-function requestManualAd(){
-  return new Promise(resolve=>{
-    if(!adexiumAds||manualAdBusy){
-      resolve({completed:false,taskId:null});
-      return;
-    }
-
-    if(typeof adexiumAds.requestRewardedAd!=="function"){
-      console.error("Adexium Rewarded API not available");
-      resolve({completed:false,taskId:null});
-      return;
-    }
-
-    manualAdBusy=true;
-    currentAdResolve=resolve;
-    currentAdTaskId=null;
-
-    let finished=false;
-
-    const safeFinish=value=>{
-      if(finished)return;
-      finished=true;
-      clearTimeout(timeout);
-
-      if(currentAdResolve){
-        finishCurrentAd(value);
-      }
-    };
-
-    const timeout=setTimeout(()=>{
-      safeFinish(false);
-    },60000);
-
-    try{
-      adexiumAds.requestRewardedAd("interstitial");
-    }catch(e){
-      console.error("Adexium Rewarded Ad request error:",e);
-      safeFinish(false);
-    }
-  });
-}
+/* --------------------------------
+   SETTINGS
+--------------------------------- */
 
 async function loadSettings(){
   try{
     const res=await fetch(API+"/api/settings");
     const data=await res.json();
+
     if(!data.success)return;
 
     settings=data.settings||{};
@@ -318,14 +439,20 @@ async function loadSettings(){
 
     renderCategories();
     initAdexium();
+
   }catch(e){
     console.error("Settings error",e);
   }
 }
 
+/* --------------------------------
+   CATEGORIES
+--------------------------------- */
+
 function renderCategories(){
   const box=document.getElementById("categories");
   const categories=(settings.categories||[]).filter(c=>c.enabled!==false);
+
   box.innerHTML="";
 
   const all=document.createElement("button");
@@ -350,6 +477,10 @@ function selectCategory(id){
   loadVideos();
 }
 
+/* --------------------------------
+   LOAD VIDEOS
+--------------------------------- */
+
 async function loadVideos(){
   const list=document.getElementById("videoList");
   list.innerHTML='<div class="loading">Loading videos...</div>';
@@ -368,6 +499,7 @@ async function loadVideos(){
 
     renderVideos();
     updatePagination(data.pagination);
+
   }catch(e){
     list.innerHTML='<div class="empty">ভিডিও লোড করা যায়নি। আবার চেষ্টা করো।</div>';
     console.error(e);
@@ -462,6 +594,10 @@ function changePage(direction){
   window.scrollTo({top:0,behavior:"smooth"});
 }
 
+/* --------------------------------
+   PROMOTIONAL CHANNEL
+--------------------------------- */
+
 function joinChannel(){
   const url=settings.promotionalChannel?.url;
 
@@ -472,6 +608,10 @@ function joinChannel(){
 
   openExternal(url);
 }
+
+/* --------------------------------
+   REFERRAL
+--------------------------------- */
 
 function openReferral(){
   const user=tg?.initDataUnsafe?.user;
@@ -499,9 +639,12 @@ function openReferral(){
   );
 }
 
-/* CREDIT UNLOCK */
+/* --------------------------------
+   CREDIT UNLOCK
+--------------------------------- */
+
 async function startUnlock(videoId){
-  if(unlockBusy||videoAdBusy)return;
+  if(unlockBusy||videoAdBusy||rewardBusy)return;
 
   if(!tg?.initData){
     showModal("Telegram Required","ভিডিও আনলক করতে Telegram Mini App থেকে প্রবেশ করো।");
@@ -565,9 +708,12 @@ async function startUnlock(videoId){
   }
 }
 
-/* VIDEO UNLOCK THROUGH ADEXIUM ADS */
+/* --------------------------------
+   VIDEO UNLOCK THROUGH VIDEO WIDGET
+--------------------------------- */
+
 async function startVideoAdsUnlock(videoId){
-  if(videoAdBusy||unlockBusy)return;
+  if(videoAdBusy||unlockBusy||rewardBusy)return;
 
   if(!tg?.initData){
     showModal("Telegram Required","ভিডিও আনলক করতে Telegram Mini App থেকে প্রবেশ করো।");
@@ -584,8 +730,12 @@ async function startVideoAdsUnlock(videoId){
     return;
   }
 
-  if(!adexiumAds){
-    showModal("Adexium Not Ready","Adexium SDK এখনো প্রস্তুত নয়। কিছুক্ষণ পর আবার চেষ্টা করো।");
+  if(!videoAdWidget){
+    initAdexium();
+  }
+
+  if(!videoAdWidget){
+    showModal("Adexium Not Ready","Video Unlock Adexium Widget প্রস্তুত নয়। কিছুক্ষণ পর আবার চেষ্টা করো।");
     return;
   }
 
@@ -619,7 +769,7 @@ async function startVideoAdsUnlock(videoId){
         `ভিডিও আনলক করতে ${required}টি বিজ্ঞাপন সম্পন্ন করতে হবে।\n\nসম্পন্ন: ${completed} / ${required}\n\nবিজ্ঞাপন সম্পন্ন না হলে Credit দিয়ে আনলক করতে পারো।`
       );
 
-      const adResult=await requestManualAd();
+      const adResult=await requestManualAd(videoAdWidget);
 
       if(!adResult.completed||!adResult.taskId){
         throw new Error("বিজ্ঞাপন সম্পন্ন হয়নি অথবা Adexium Task ID পাওয়া যায়নি। আবার চেষ্টা করো।");
@@ -684,7 +834,9 @@ function setVideoButtonsDisabled(disabled,text){
     button.disabled=disabled;
 
     if(disabled&&text){
-      button.dataset.originalText=button.textContent;
+      if(!button.dataset.originalText){
+        button.dataset.originalText=button.textContent;
+      }
       button.textContent=text;
     }else if(!disabled&&button.dataset.originalText){
       button.textContent=button.dataset.originalText;
@@ -693,7 +845,10 @@ function setVideoButtonsDisabled(disabled,text){
   });
 }
 
-/* SPECIAL REWARD */
+/* --------------------------------
+   SPECIAL REWARD STATUS
+--------------------------------- */
+
 function updateRewardUI(data){
   const completed=Number(data.completed)||0;
   const required=Math.max(1,Number(data.required)||50);
@@ -743,6 +898,10 @@ async function loadRewardStatus(){
   }
 }
 
+/* --------------------------------
+   SPECIAL REWARD VERIFICATION
+--------------------------------- */
+
 async function verifyRewardTask(taskId){
   const res=await fetch(API+"/api/reward/verify",{
     method:"POST",
@@ -773,8 +932,12 @@ async function watchRewardAd(){
     return;
   }
 
-  if(!adexiumAds){
-    showModal("Ad Loading","Adexium SDK এখনো প্রস্তুত নয়। কিছুক্ষণ পর আবার চেষ্টা করো।");
+  if(!rewardAdWidget){
+    initAdexium();
+  }
+
+  if(!rewardAdWidget){
+    showModal("Ad Loading","Reward Adexium Widget প্রস্তুত নয়। কিছুক্ষণ পর আবার চেষ্টা করো।");
     return;
   }
 
@@ -785,7 +948,7 @@ async function watchRewardAd(){
   button.textContent="⏳ Showing Ad...";
 
   try{
-    const adResult=await requestManualAd();
+    const adResult=await requestManualAd(rewardAdWidget);
 
     if(!adResult.completed||!adResult.taskId){
       throw new Error("বিজ্ঞাপন পাওয়া যায়নি বা বিজ্ঞাপন সম্পন্ন হয়নি।");
@@ -827,6 +990,10 @@ async function copyRewardUrl(){
   if(rewardUrl)await copyText(rewardUrl);
 }
 
+/* --------------------------------
+   OPEN LINKS
+--------------------------------- */
+
 function openExternal(url){
   if(!url)return;
 
@@ -838,6 +1005,10 @@ function openExternal(url){
     window.open(url,"_blank");
   }
 }
+
+/* --------------------------------
+   APP START
+--------------------------------- */
 
 async function init(){
   await loadSettings();
