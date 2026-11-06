@@ -251,25 +251,15 @@ function initAdexium(){
   }
 }
 
-function finishCurrentAd(completed){
-  if(!currentAdResolve)return;
-
-  const resolve=currentAdResolve;
-  const taskId=currentAdTaskId;
-
-  currentAdResolve=null;
-  currentAdTaskId=null;
-  manualAdBusy=false;
-
-  resolve({
-    completed:!!completed,
-    taskId:completed?taskId:null
-  });
-}
-
 function requestManualAd(){
   return new Promise(resolve=>{
     if(!adexiumAds||manualAdBusy){
+      resolve({completed:false,taskId:null});
+      return;
+    }
+
+    if(typeof adexiumAds.requestRewardedAd!=="function"){
+      console.error("Adexium Rewarded API not available");
       resolve({completed:false,taskId:null});
       return;
     }
@@ -284,17 +274,20 @@ function requestManualAd(){
       if(finished)return;
       finished=true;
       clearTimeout(timeout);
-      if(currentAdResolve)finishCurrentAd(value);
+
+      if(currentAdResolve){
+        finishCurrentAd(value);
+      }
     };
 
     const timeout=setTimeout(()=>{
       safeFinish(false);
-    },45000);
+    },60000);
 
     try{
-      adexiumAds.requestAd("interstitial");
+      adexiumAds.requestRewardedAd("interstitial");
     }catch(e){
-      console.error("Ad request error",e);
+      console.error("Adexium Rewarded Ad request error:",e);
       safeFinish(false);
     }
   });
