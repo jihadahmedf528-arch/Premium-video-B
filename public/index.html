@@ -158,7 +158,6 @@ if(tg){tg.ready();tg.expand()}
 const API="";
 const BOT_USERNAME="viralbox9_bot";
 
-/* তিনটি আলাদা Adexium Widget ID */
 const ADEXIUM_IDS={
   auto:"5ee6c127-84ba-4b38-a1e1-564e145ae21d",
   video:"f07e2a5c-104d-4d72-9eff-987e997ffcdb",
@@ -217,9 +216,7 @@ async function copyText(text){
 }
 async function copyReferral(){if(referralUrl)await copyText(referralUrl)}
 
-/* --------------------------------
-   ADEXIUM MANUAL WIDGET INITIALIZER
---------------------------------- */
+/* MANUAL ADEXIUM WIDGET */
 
 function finishManualAd(widget,completed){
   const state=manualAdStates.get(widget);
@@ -302,6 +299,13 @@ function createManualAdWidget(widgetId,label){
   }
 }
 
+/*
+  Rewarded interstitial:
+  requestRewardedAd("interstitial")
+
+  এটি ভিডিও আনলক ও Special Reward-এর জন্য।
+*/
+
 function requestManualAd(widget){
   return new Promise(resolve=>{
     if(!widget||manualAdBusy){
@@ -309,8 +313,8 @@ function requestManualAd(widget){
       return;
     }
 
-    if(typeof widget.requestAd!=="function"){
-      console.error("Adexium requestAd API unavailable");
+    if(typeof widget.requestRewardedAd!=="function"){
+      console.error("Adexium requestRewardedAd API unavailable");
       resolve({completed:false,taskId:null});
       return;
     }
@@ -331,17 +335,15 @@ function requestManualAd(widget){
     },60000);
 
     try{
-      widget.requestAd("interstitial");
+      widget.requestRewardedAd("interstitial");
     }catch(e){
-      console.error("Adexium ad request error:",e);
+      console.error("Adexium rewarded ad request error:",e);
       finishManualAd(widget,false);
     }
   });
 }
 
-/* --------------------------------
-   AUTOMATIC INTERSTITIAL WIDGET
---------------------------------- */
+/* AUTOMATIC INTERSTITIAL */
 
 function initAutomaticAds(){
   if(autoAdStarted)return;
@@ -380,9 +382,7 @@ function initAutomaticAds(){
   }
 }
 
-/* --------------------------------
-   INITIALIZE ALL THREE WIDGETS
---------------------------------- */
+/* INITIALIZE WIDGETS */
 
 function initAdexium(){
   if(settings.ads?.adexiumEnabled===false)return;
@@ -409,9 +409,7 @@ function initAdexium(){
   initAutomaticAds();
 }
 
-/* --------------------------------
-   SETTINGS
---------------------------------- */
+/* SETTINGS */
 
 async function loadSettings(){
   try{
@@ -445,9 +443,7 @@ async function loadSettings(){
   }
 }
 
-/* --------------------------------
-   CATEGORIES
---------------------------------- */
+/* CATEGORIES */
 
 function renderCategories(){
   const box=document.getElementById("categories");
@@ -477,9 +473,7 @@ function selectCategory(id){
   loadVideos();
 }
 
-/* --------------------------------
-   LOAD VIDEOS
---------------------------------- */
+/* LOAD VIDEOS */
 
 async function loadVideos(){
   const list=document.getElementById("videoList");
@@ -594,9 +588,7 @@ function changePage(direction){
   window.scrollTo({top:0,behavior:"smooth"});
 }
 
-/* --------------------------------
-   PROMOTIONAL CHANNEL
---------------------------------- */
+/* PROMOTIONAL CHANNEL */
 
 function joinChannel(){
   const url=settings.promotionalChannel?.url;
@@ -609,9 +601,7 @@ function joinChannel(){
   openExternal(url);
 }
 
-/* --------------------------------
-   REFERRAL
---------------------------------- */
+/* REFERRAL */
 
 function openReferral(){
   const user=tg?.initDataUnsafe?.user;
@@ -639,9 +629,7 @@ function openReferral(){
   );
 }
 
-/* --------------------------------
-   CREDIT UNLOCK
---------------------------------- */
+/* CREDIT UNLOCK */
 
 async function startUnlock(videoId){
   if(unlockBusy||videoAdBusy||rewardBusy)return;
@@ -708,9 +696,7 @@ async function startUnlock(videoId){
   }
 }
 
-/* --------------------------------
-   VIDEO UNLOCK THROUGH VIDEO WIDGET
---------------------------------- */
+/* VIDEO UNLOCK THROUGH REWARDED WIDGET */
 
 async function startVideoAdsUnlock(videoId){
   if(videoAdBusy||unlockBusy||rewardBusy)return;
@@ -845,9 +831,7 @@ function setVideoButtonsDisabled(disabled,text){
   });
 }
 
-/* --------------------------------
-   SPECIAL REWARD STATUS
---------------------------------- */
+/* SPECIAL REWARD STATUS */
 
 function updateRewardUI(data){
   const completed=Number(data.completed)||0;
@@ -898,9 +882,7 @@ async function loadRewardStatus(){
   }
 }
 
-/* --------------------------------
-   SPECIAL REWARD VERIFICATION
---------------------------------- */
+/* SPECIAL REWARD VERIFICATION */
 
 async function verifyRewardTask(taskId){
   const res=await fetch(API+"/api/reward/verify",{
@@ -990,9 +972,7 @@ async function copyRewardUrl(){
   if(rewardUrl)await copyText(rewardUrl);
 }
 
-/* --------------------------------
-   OPEN LINKS
---------------------------------- */
+/* OPEN LINKS */
 
 function openExternal(url){
   if(!url)return;
@@ -1006,9 +986,7 @@ function openExternal(url){
   }
 }
 
-/* --------------------------------
-   APP START
---------------------------------- */
+/* APP START */
 
 async function init(){
   await loadSettings();
