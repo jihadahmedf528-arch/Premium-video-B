@@ -17,6 +17,7 @@ const VIDEO_BOT_USERNAME = process.env.VIDEO_BOT_USERNAME || "";
 const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || "";
 
 const MONETAG_ZONE_ID = "12187766";
+const MIN_REWARDED_AD_MS = 10000;
 
 let db;
 let firebaseReady = false;
@@ -497,7 +498,8 @@ function getRewardProgress(userData = {}) {
 
   return {
     completed: Math.max(0, Number(progress.completed) || 0),
-    events: progress.events || {}
+    events: progress.events || {},
+    lastAdAt: Number(progress.lastAdAt) || 0
   };
 }
 
@@ -718,6 +720,7 @@ app.post(
           ymids: {},
           status: "active",
           createdAt: now,
+          lastAdAt: 0,
           expiresAt: now + 30 * 60 * 1000
         });
 
@@ -833,14 +836,18 @@ app.post(
         });
       }
 
+      let retryAfterMs = 0;
+
       const progressResult = await attemptRef.transaction(current => {
         if (!current) return;
+
+        const now = Date.now();
 
         if (
           String(current.userId) !== String(user.id) ||
           String(current.videoId) !== videoId ||
           current.status !== "active" ||
-          Number(current.expiresAt) < Date.now()
+          Number(current.expiresAt) < now
         ) {
           return;
         }
@@ -848,19 +855,32 @@ app.post(
         current.ymids = current.ymids || {};
 
         if (current.ymids[ymidHash]) {
-          return current;
+          return;
+        }
+
+        const previousAdAt =
+          Number(current.lastAdAt) ||
+          Number(current.createdAt) ||
+          0;
+
+        const elapsed = now - previousAdAt;
+
+        if (elapsed < MIN_REWARDED_AD_MS) {
+          retryAfterMs = MIN_REWARDED_AD_MS - elapsed;
+          return;
         }
 
         current.ymids[ymidHash] = true;
         current.completed = (Number(current.completed) || 0) + 1;
+        current.lastAdAt = now;
 
         if (current.completed >= Number(current.required)) {
           current.completed = Number(current.required);
           current.status = "completed";
-          current.completedAt = Date.now();
+          current.completedAt = now;
         }
 
-        current.updatedAt = Date.now();
+        current.updatedAt = now;
         return current;
       });
 
@@ -868,6 +888,14 @@ app.post(
 
       if (!progressResult.committed || !updated) {
         await claimRef.remove();
+
+        if (retryAfterMs > 0) {
+          return res.status(429).json({
+            success: false,
+            error: "Please wait before counting the next ad",
+            retryAfterMs
+          });
+        }
 
         return res.status(409).json({
           success: false,
@@ -1064,7 +1092,11 @@ app.post(
         `users/${user.id}/monetagRewardProgress`
       );
 
+      let retryAfterMs = 0;
+
       const progressResult = await progressRef.transaction(current => {
+        const now = Date.now();
+
         current = current || {};
         current.completed = Math.max(
           0,
@@ -1073,18 +1105,46 @@ app.post(
         current.events = current.events || {};
 
         if (current.events[ymidHash]) {
-          return current;
+          return;
+        }
+
+        const previousAdAt = Number(current.lastAdAt) || 0;
+
+        /*
+         * Special Reward-এর প্রথম বিজ্ঞাপন:
+         * বর্তমান frontend SDK Promise ও 10-second timer দিয়ে
+         * প্রথম বিজ্ঞাপনের সময় নিয়ন্ত্রণ করে।
+         *
+         * পরবর্তী বিজ্ঞাপনগুলোর মধ্যে সার্ভারও 10 সেকেন্ড
+         * ব্যবধান বাধ্যতামূলক করছে।
+         */
+        if (previousAdAt > 0) {
+          const elapsed = now - previousAdAt;
+
+          if (elapsed < MIN_REWARDED_AD_MS) {
+            retryAfterMs = MIN_REWARDED_AD_MS - elapsed;
+            return;
+          }
         }
 
         current.events[ymidHash] = true;
         current.completed += 1;
-        current.updatedAt = Date.now();
+        current.lastAdAt = now;
+        current.updatedAt = now;
 
         return current;
       });
 
       if (!progressResult.committed) {
         await claimRef.remove();
+
+        if (retryAfterMs > 0) {
+          return res.status(429).json({
+            success: false,
+            error: "Please wait before counting the next ad",
+            retryAfterMs
+          });
+        }
 
         return res.status(500).json({
           success: false,
