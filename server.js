@@ -1,3 +1,4 @@
+
 const express = require("express");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
@@ -655,17 +656,7 @@ app.get("/api/videos", requireFirebase, async (req, res) => {
   }
 });
 
-/*
- * Video Unlock
- *
- * Frontend: ১০ সেকেন্ডের টাইমার শেষ হলে
- * POST /api/video/ad/count পাঠাবে।
- *
- * এখানে attemptId, ymid বা Monetag claim যাচাই নেই।
- * প্রতিটি ইউজার ও প্রতিটি ভিডিওর progress আলাদা।
- * প্রয়োজনীয় সংখ্যা পূর্ণ হলে progress আবার ০ হবে,
- * তাই একই ভিডিও পরেরবার খুললে নতুন করে Ads লাগবে।
- */
+/* Video Unlock: count one ad after frontend countdown */
 
 app.post(
   "/api/video/ad/count",
@@ -810,7 +801,136 @@ app.post(
   }
 );
 
-/* Credit unlock disabled */
+/* Credit balance */
+
+app.get(
+  "/api/credits/status",
+  requireFirebase,
+  requireTelegramUser,
+  async (req, res) => {
+    try {
+      const user = req.telegramUser;
+
+      await saveTelegramUser(user);
+
+      const snapshot = await db
+        .ref(`users/${user.id}/credits`)
+        .once("value");
+
+      const credits = Math.max(0, Number(snapshot.val()) || 0);
+
+      res.json({
+        success: true,
+        credits
+      });
+    } catch (error) {
+      console.error("Credit status error:", error.message);
+
+      res.status(500).json({
+        success: false,
+        error: "Could not load credit balance"
+      });
+    }
+  }
+);
+
+/* Unlock video with exactly one credit */
+
+app.post(
+  "/api/credits/unlock",
+  requireFirebase,
+  requireTelegramUser,
+  async (req, res) => {
+    try {
+      const user = req.telegramUser;
+      const videoId = String(req.body?.videoId || "").trim();
+
+      if (!/^[a-zA-Z0-9_-]{1,150}$/.test(videoId)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid video ID"
+        });
+      }
+
+      await saveTelegramUser(user);
+
+      const videoRef = db.ref(`videos/${videoId}`);
+      const videoSnap = await videoRef.once("value");
+
+      if (
+        !videoSnap.exists() ||
+        videoSnap.val()?.enabled === false
+      ) {
+        return res.status(404).json({
+          success: false,
+          error: "Video not found"
+        });
+      }
+
+      const video = videoSnap.val();
+
+      if (!video.videoUrl) {
+        return res.status(404).json({
+          success: false,
+          error: "Video URL not available"
+        });
+      }
+
+      const creditRef = db.ref(`users/${user.id}/credits`);
+
+      const transaction = await creditRef.transaction(current => {
+        const balance = Math.max(0, Number(current) || 0);
+
+        if (balance < 1) {
+          return;
+        }
+
+        return balance - 1;
+      });
+
+      if (!transaction.committed) {
+        const latestBalance = Math.max(
+          0,
+          Number(transaction.snapshot.val()) || 0
+        );
+
+        return res.status(400).json({
+          success: false,
+          error: "Not enough credits",
+          credits: latestBalance,
+          required: 1
+        });
+      }
+
+      const remainingCredits = Math.max(
+        0,
+        Number(transaction.snapshot.val()) || 0
+      );
+
+      console.log(
+        `Credit video unlock: user=${user.id}, video=${videoId}, remaining=${remainingCredits}`
+      );
+
+      return res.json({
+        success: true,
+        unlocked: true,
+        videoId,
+        credits: remainingCredits,
+        videoUrl: video.videoUrl,
+        message: "Video unlocked with 1 credit"
+      });
+    } catch (error) {
+      console.error("Credit unlock error:", error.message);
+
+      res.status(500).json({
+        success: false,
+        error: "Could not unlock video with credit"
+      });
+    }
+  }
+);
+
+/* Legacy credit unlock endpoint remains disabled */
 
 app.post(
   "/api/video/unlock",
@@ -819,7 +939,7 @@ app.post(
   (req, res) => {
     res.status(403).json({
       success: false,
-      error: "Credit unlock is disabled. Watch ads to unlock videos."
+      error: "Use the credits unlock endpoint"
     });
   }
 );
