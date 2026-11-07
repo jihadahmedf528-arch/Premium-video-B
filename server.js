@@ -265,8 +265,6 @@ async function processReferral(newUserId, startParam = "") {
     const claimRef = db.ref(`referralClaims/${newId}`);
     const newUserRef = db.ref(`users/${newId}`);
 
-    // First check if a claim already exists. A pending claim is the
-    // source of truth during retries, even if /start has no payload.
     let claimSnap = await claimRef.once("value");
     let claim = claimSnap.val() || null;
 
@@ -347,7 +345,6 @@ async function processReferral(newUserId, startParam = "") {
         return { success: false, reason: "Invalid referral reward" };
       }
 
-      // Exactly one claim can be created for each new Telegram user.
       const claimResult = await claimRef.transaction(current => {
         if (current) return;
         return {
@@ -370,7 +367,6 @@ async function processReferral(newUserId, startParam = "") {
       }
     }
 
-    // Existing pending claims retain their original reward amount.
     const reward = Number(claim.reward);
 
     if (
@@ -378,14 +374,11 @@ async function processReferral(newUserId, startParam = "") {
       reward <= 0 ||
       reward > 1000000
     ) {
-      return { success: false,
-              Invalid stored reward" };
+      return { success: false, reason: "Invalid stored reward" };
     }
 
     const referrerRef = db.ref(`users/${referrerId}`);
 
-    // The marker and credit update happen in one transaction.
-    // A retry sees the marker and cannot add the same reward twice.
     const referrerResult = await referrerRef.transaction(current => {
       if (!current) return;
 
@@ -420,7 +413,6 @@ async function processReferral(newUserId, startParam = "") {
       };
     }
 
-    // Store referral ownership, without replacing another referrer.
     await newUserRef.transaction(current => {
       if (!current) return;
 
@@ -700,8 +692,7 @@ app.get("/api/videos", requireFirebase, async (req, res) => {
   }
 });
 
-/* Video Unlock: count one ad after
- frontend countdown */
+/* Video Unlock: count one ad after frontend countdown */
 
 app.post(
   "/api/video/ad/count",
@@ -1024,8 +1015,7 @@ app.post(
         });
       }
 
-      await
-         saveTelegramUser(user);
+      await saveTelegramUser(user);
 
       const [settingsSnap, userSnap] = await Promise.all([
         db.ref("settings").once("value"),
@@ -1621,8 +1611,7 @@ app.delete(
   requireAdmin,
   async (req, res) => {
     try {
-      await db.ref(`videos/${req.
-                             params.id}`).remove();
+      await db.ref(`videos/${req.params.id}`).remove();
       res.json({ success: true, message: "Video deleted" });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -1687,7 +1676,6 @@ app.post("/api/telegram/webhook", async (req, res) => {
     return res.sendStatus(403);
   }
 
-  // Acknowledge Telegram immediately; process update asynchronously.
   res.sendStatus(200);
 
   try {
@@ -1704,8 +1692,6 @@ app.post("/api/telegram/webhook", async (req, res) => {
 
       const savedUser = await saveTelegramUser(message.from, payload);
 
-      // Use the explicit start payload first, then the saved payload.
-      // processReferral can also resume an existing pending claim itself.
       const referralParam = payload || savedUser.startParam || "";
       const referralResult = await processReferral(
         message.from.id,
