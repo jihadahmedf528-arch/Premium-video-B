@@ -1,4 +1,3 @@
-
 const express = require("express");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
@@ -656,10 +655,20 @@ app.get("/api/videos", requireFirebase, async (req, res) => {
   }
 });
 
-/* Start video ad session */
+/*
+ * Video Unlock
+ *
+ * Frontend: ১০ সেকেন্ডের টাইমার শেষ হলে
+ * POST /api/video/ad/count পাঠাবে।
+ *
+ * এখানে attemptId, ymid বা Monetag claim যাচাই নেই।
+ * প্রতিটি ইউজার ও প্রতিটি ভিডিওর progress আলাদা।
+ * প্রয়োজনীয় সংখ্যা পূর্ণ হলে progress আবার ০ হবে,
+ * তাই একই ভিডিও পরেরবার খুললে নতুন করে Ads লাগবে।
+ */
 
 app.post(
-  "/api/video/ad/start",
+  "/api/video/ad/count",
   requireFirebase,
   requireTelegramUser,
   async (req, res) => {
@@ -667,11 +676,7 @@ app.post(
       const user = req.telegramUser;
       const videoId = String(req.body?.videoId || "").trim();
 
-      if (
-        !videoId ||
-        videoId.length > 150 ||
-        !/^[a-zA-Z0-9_-]+$/.test(videoId)
-      ) {
+      if (!/^[a-zA-Z0-9_-]{1,150}$/.test(videoId)) {
         return res.status(400).json({
           success: false,
           error: "Invalid video ID"
@@ -695,117 +700,6 @@ app.post(
         });
       }
 
-      const settings = mergeSettings(settingsSnap.val() || {});
-      const video = videoSnap.val();
-
-      const required = Math.max(
-        1,
-        Math.min(
-          100,
-          Number(video.adsRequired) || settings.ads.adsPerVideo
-        )
-      );
-
-      const attemptId = crypto.randomBytes(24).toString("hex");
-      const now = Date.now();
-
-      await db
-        .ref(`videoAdUnlockAttempts/${user.id}/${attemptId}`)
-        .set({
-          userId: String(user.id),
-          videoId,
-          network: "monetag",
-          required,
-          completed: 0,
-          ymids: {},
-          status: "active",
-          createdAt: now,
-          lastAdAt: 0,
-          expiresAt: now + 30 * 60 * 1000
-        });
-
-      res.json({
-        success: true,
-        attemptId,
-        videoId,
-        zoneId: MONETAG_ZONE_ID,
-        required,
-        completed: 0,
-        message: "Video ad session started"
-      });
-    } catch (error) {
-      console.error("Video ad start error:", error.message);
-
-      res.status(500).json({
-        success: false,
-        error: "Could not start video ad session"
-      });
-    }
-  }
-);
-
-/* Count one completed video ad */
-
-app.post(
-  "/api/video/ad/verify",
-  requireFirebase,
-  requireTelegramUser,
-  async (req, res) => {
-    try {
-      const user = req.telegramUser;
-      const videoId = String(req.body?.videoId || "").trim();
-      const attemptId = String(req.body?.attemptId || "").trim();
-      const ymid = String(req.body?.ymid || "").trim();
-
-      if (!/^[a-zA-Z0-9_-]{1,150}$/.test(videoId)) {
-        return res.status(400).json({
-          success: false,
-          error: "Invalid video ID"
-        });
-      }
-
-      if (!/^[a-f0-9]{48}$/.test(attemptId)) {
-        return res.status(400).json({
-          success: false,
-          error: "Invalid unlock session"
-        });
-      }
-
-      if (!validYmid(ymid)) {
-        return res.status(400).json({
-          success: false,
-          error: "Invalid ad reference"
-        });
-      }
-
-      await saveTelegramUser(user);
-
-      const attemptRef = db.ref(
-        `videoAdUnlockAttempts/${user.id}/${attemptId}`
-      );
-
-      const [attemptSnap, videoSnap] = await Promise.all([
-        attemptRef.once("value"),
-        db.ref(`videos/${videoId}`).once("value")
-      ]);
-
-      if (!attemptSnap.exists()) {
-        return res.status(404).json({
-          success: false,
-          error: "Unlock session not found"
-        });
-      }
-
-      if (
-        !videoSnap.exists() ||
-        videoSnap.val()?.enabled === false
-      ) {
-        return res.status(404).json({
-          success: false,
-          error: "Video not found"
-        });
-      }
-
       const video = videoSnap.val();
 
       if (!video.videoUrl) {
@@ -815,145 +709,89 @@ app.post(
         });
       }
 
-      const ymidHash = hashYmid(ymid);
-      const claimRef = db.ref(`monetagVideoClaims/${ymidHash}`);
+      const settings = mergeSettings(settingsSnap.val() || {});
 
-      const claimResult = await claimRef.transaction(current => {
-        if (current) return;
+      const required = Math.max(
+        1,
+        Math.min(
+          100,
+          Number(video.adsRequired) || settings.ads.adsPerVideo
+        )
+      );
+
+      const progressRef = db.ref(
+        `users/${user.id}/videoAdProgress/${videoId}`
+      );
+
+      const countTime = Date.now();
+      let unlockedThisRequest = false;
+
+      const result = await progressRef.transaction(current => {
+        current = current || {};
+
+        let completed = Math.max(
+          0,
+          Number(current.completed) || 0
+        );
+
+        completed += 1;
+        unlockedThisRequest = false;
+
+        if (completed >= required) {
+          unlockedThisRequest = true;
+
+          return {
+            completed: 0,
+            required,
+            totalAdsCompleted:
+              (Number(current.totalAdsCompleted) || 0) + required,
+            totalUnlocks:
+              (Number(current.totalUnlocks) || 0) + 1,
+            lastUnlockAt: countTime,
+            lastCountAt: countTime,
+            updatedAt: countTime
+          };
+        }
 
         return {
-          userId: String(user.id),
-          videoId,
-          attemptId,
-          createdAt: Date.now()
+          ...current,
+          completed,
+          required,
+          lastCountAt: countTime,
+          updatedAt: countTime
         };
       });
 
-      if (!claimResult.committed) {
-        return res.status(409).json({
+      if (!result.committed) {
+        return res.status(500).json({
           success: false,
-          error: "This ad reference has already been used"
+          error: "Could not update video ad progress"
         });
       }
 
-      let retryAfterMs = 0;
+      const updated = result.snapshot.val() || {};
 
-      const progressResult = await attemptRef.transaction(current => {
-        if (!current) return;
-
-        const now = Date.now();
-
-        if (
-          String(current.userId) !== String(user.id) ||
-          String(current.videoId) !== videoId ||
-          current.status !== "active" ||
-          Number(current.expiresAt) < now
-        ) {
-          return;
-        }
-
-        current.ymids = current.ymids || {};
-
-        if (current.ymids[ymidHash]) {
-  console.error("DUPLICATE VIDEO AD:", {
-    userId: String(user.id),
-    videoId,
-    attemptId,
-    ymidHash
-  });
-  return;
-}
-
-        const previousAdAt =
-          Number(current.lastAdAt) ||
-          Number(current.createdAt) ||
-          0;
-
-        const elapsed = now - previousAdAt;
-
-        if (elapsed < MIN_REWARDED_AD_MS) {
-          retryAfterMs = MIN_REWARDED_AD_MS - elapsed;
-          return;
-        }
-
-        current.ymids[ymidHash] = true;
-        current.completed = (Number(current.completed) || 0) + 1;
-        current.lastAdAt = now;
-
-        if (current.completed >= Number(current.required)) {
-          current.completed = Number(current.required);
-          current.status = "completed";
-          current.completedAt = now;
-        }
-
-        current.updatedAt = now;
-        return current;
-      });
-
-      const updated = progressResult.snapshot.val();
-
-      if (!progressResult.committed || !updated) {
- await claimRef.remove();
-
-  if (retryAfterMs > 0) {
-    return res.status(429).json({
-      success: false,
-      error: "Please wait before counting the next ad",
-      retryAfterMs
-    });
-  }
-
-  const latestAttempt = await attemptRef.once("value");
-  const latest = latestAttempt.val();
-
-  let reason = "Unknown session transaction failure";
-
-  if (!latest) {
-    reason = "Session does not exist";
-  } else if (String(latest.userId) !== String(user.id)) {
-    reason = "Session user mismatch";
-  } else if (String(latest.videoId) !== videoId) {
-    reason = "Session video mismatch";
-  } else if (latest.status !== "active") {
-    reason = "Session is not active: " + latest.status;
-  } else if (Number(latest.expiresAt) < Date.now()) {
-    reason = "Session expired";
-  }
-
-  console.error("VIDEO SESSION UPDATE FAILED:", reason);
-
-  return res.status(409).json({
-    success: false,
-    error: reason
-  });
-}
-
-      await claimRef.update({ creditedAt: Date.now() });
-
-      const completed = Number(updated.completed) || 0;
-      const required = Number(updated.required) || 1;
-      const unlocked = updated.status === "completed";
-
-      if (unlocked) {
-        await db.ref(`users/${user.id}`).update({
-          lastVideoUnlockAt: Date.now()
-        });
+      if (unlockedThisRequest) {
+        console.log(
+          `Video unlocked: user=${user.id}, video=${videoId}`
+        );
 
         return res.json({
           success: true,
-          verified: true,
           unlocked: true,
           videoId,
-          completed,
+          completed: required,
           required,
+          remaining: 0,
           videoUrl: video.videoUrl,
           message: "Video unlocked successfully"
         });
       }
 
+      const completed = Number(updated.completed) || 0;
+
       res.json({
         success: true,
-        verified: true,
         unlocked: false,
         videoId,
         completed,
@@ -1135,14 +973,6 @@ app.post(
 
         const previousAdAt = Number(current.lastAdAt) || 0;
 
-        /*
-         * Special Reward-এর প্রথম বিজ্ঞাপন:
-         * বর্তমান frontend SDK Promise ও 10-second timer দিয়ে
-         * প্রথম বিজ্ঞাপনের সময় নিয়ন্ত্রণ করে।
-         *
-         * পরবর্তী বিজ্ঞাপনগুলোর মধ্যে সার্ভারও 10 সেকেন্ড
-         * ব্যবধান বাধ্যতামূলক করছে।
-         */
         if (previousAdAt > 0) {
           const elapsed = now - previousAdAt;
 
