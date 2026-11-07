@@ -265,7 +265,7 @@ async function saveTelegramUser(user, startParam = "") {
   return { isNewUser };
 }
 
-/* Referral system */
+/* Referral system - idempotent credit processing */
 
 async function processReferral(newUserId, startParam = "") {
   const match = /^ref_(\d{1,20})$/.exec(String(startParam || ""));
@@ -298,23 +298,36 @@ async function processReferral(newUserId, startParam = "") {
       };
     }
 
+    let claim;
     const existingClaimSnap = await claimRef.once("value");
-    let claim = existingClaimSnap.val();
 
-    if (claim) {
+    if (existingClaimSnap.exists()) {
+      claim = existingClaimSnap.val();
+
       if (String(claim.referrerId) !== referrerId) {
-        return { success: false, reason: "Referral claim mismatch" };
+        return {
+          success: false,
+          reason: "Referral claim mismatch"
+        };
       }
 
       if (claim.status === "completed") {
-        return { success: false, reason: "Already rewarded" };
+        return {
+          success: false,
+          reason: "Already rewarded"
+        };
       }
     } else {
       if (newUserData.referredBy) {
-        return { success: false, reason: "User already referred" };
+        return {
+          success: false,
+          reason: "User already referred"
+        };
       }
 
-      const settingsSnap = await db.ref("settings/referral").once("value");
+      const settingsSnap = await db
+        .ref("settings/referral")
+        .once("value");
 
       const referralSettings = {
         ...DEFAULT_SETTINGS.referral,
@@ -322,7 +335,10 @@ async function processReferral(newUserId, startParam = "") {
       };
 
       if (referralSettings.enabled === false) {
-        return { success: false, reason: "Referral disabled" };
+        return {
+          success: false,
+          reason: "Referral disabled"
+        };
       }
 
       const reward = Number(referralSettings.rewardPerReferral);
@@ -332,7 +348,10 @@ async function processReferral(newUserId, startParam = "") {
         reward <= 0 ||
         reward > 1000000
       ) {
-        return { success: false, reason: "Invalid referral reward" };
+        return {
+          success: false,
+          reason: "Invalid referral reward"
+        };
       }
 
       const referrerSnap = await db
@@ -340,7 +359,10 @@ async function processReferral(newUserId, startParam = "") {
         .once("value");
 
       if (!referrerSnap.exists()) {
-        return { success: false, reason: "Referrer not found" };
+        return {
+          success: false,
+          reason: "Referrer not found"
+        };
       }
 
       const claimResult = await claimRef.transaction(current => {
@@ -357,10 +379,7 @@ async function processReferral(newUserId, startParam = "") {
 
       claim = claimResult.snapshot.val();
 
-      if (
-        !claim ||
-        String(claim.referrerId) !== referrerId
-      ) {
+      if (!claim || String(claim.referrerId) !== referrerId) {
         return {
           success: false,
           reason: "Could not create referral claim"
@@ -368,7 +387,10 @@ async function processReferral(newUserId, startParam = "") {
       }
 
       if (claim.status === "completed") {
-        return { success: false, reason: "Already rewarded" };
+        return {
+          success: false,
+          reason: "Already rewarded"
+        };
       }
     }
 
@@ -379,10 +401,20 @@ async function processReferral(newUserId, startParam = "") {
       reward <= 0 ||
       reward > 1000000
     ) {
-      return { success: false, reason: "Invalid stored reward" };
+      return {
+        success: false,
+        reason: "Invalid stored reward"
+      };
     }
 
     const referrerRef = db.ref(`users/${referrerId}`);
+
+    /*
+      This transaction is the duplicate protection.
+
+      If the referral marker already exists, it does not
+      add credits again. This also makes recovery safe.
+    */
 
     const referrerResult = await referrerRef.transaction(user => {
       if (!user) return;
@@ -394,7 +426,9 @@ async function processReferral(newUserId, startParam = "") {
       }
 
       user.credits = (Number(user.credits) || 0) + reward;
-      user.totalReferrals = (Number(user.totalReferrals) || 0) + 1;
+
+      user.totalReferrals =
+        (Number(user.totalReferrals) || 0) + 1;
 
       user.referrals[newId] = {
         reward,
@@ -404,22 +438,63 @@ async function processReferral(newUserId, startParam = "") {
       return user;
     });
 
-    if (!referrerResult.committed) {
-      const latestSnap = await referrerRef.once("value");
-      const latest = latestSnap.val() || {};
+    /*
+      Read the latest referrer data even if the transaction
+      did not commit, to confirm whether the reward was
+      already applied by an earlier request.
+    */
 
-      if (!latest.referrals || !latest.referrals[newId]) {
-        return {
-          success: false,
-          reason: "Could not apply referral reward"
-        };
-      }
+    const latestReferrerSnap = await referrerRef.once("value");
+    const latestReferrer = latestReferrerSnap.val() || {};
+
+    if (
+      !latestReferrer.referrals ||
+      !latestReferrer.referrals[newId]
+    ) {
+      return {
+        success: false,
+        reason: referrerResult.committed
+          ? "Could not confirm referral reward"
+          : "Referrer not found or transaction failed"
+      };
     }
 
-    await newUserRef.update({
-      referredBy: referrerId,
-      referredAt: Number(claim.createdAt) || Date.now()
+    /*
+      Save referral ownership without overwriting an
+      existing different referrer.
+    */
+
+    const userResult = await newUserRef.transaction(current => {
+      if (!current) return;
+
+      if (
+        current.referredBy &&
+        String(current.referredBy) !== referrerId
+      ) {
+        return;
+      }
+
+      current.referredBy = referrerId;
+      current.referredAt =
+        Number(claim.createdAt) || Date.now();
+
+      return current;
     });
+
+    const latestNewUserSnap = await newUserRef.once("value");
+    const latestNewUser = latestNewUserSnap.val() || {};
+
+    if (String(latestNewUser.referredBy || "") !== referrerId) {
+      return {
+        success: false,
+        reason: "Could not save referral ownership"
+      };
+    }
+
+    /*
+      Mark claim completed only after the reward marker
+      and referral ownership are confirmed.
+    */
 
     await claimRef.update({
       status: "completed",
@@ -430,10 +505,75 @@ async function processReferral(newUserId, startParam = "") {
       `Referral completed: referrer=${referrerId}, newUser=${newId}, reward=${reward}`
     );
 
-    return { success: true, reward };
+    return {
+      success: true,
+      reward,
+      referrerId,
+      newUserId: newId
+    };
   } catch (error) {
     console.error("Referral processing error:", error.message);
-    return { success: false, reason: error.message };
+
+    return {
+      success: false,
+      reason: error.message
+    };
+  }
+}
+
+/* Recover pending referral claims */
+
+let referralRecoveryRunning = false;
+
+async function recoverPendingReferralClaims() {
+  if (!firebaseReady || referralRecoveryRunning) return;
+
+  referralRecoveryRunning = true;
+
+  try {
+    const snapshot = await db
+      .ref("referralClaims")
+      .once("value");
+
+    if (!snapshot.exists()) return;
+
+    const claims = snapshot.val() || {};
+
+    for (const [newUserId, claim] of Object.entries(claims)) {
+      if (
+        !claim ||
+        claim.status !== "pending" ||
+        !claim.referrerId
+      ) {
+        continue;
+      }
+
+      try {
+        const result = await processReferral(
+          claim.newUserId || newUserId,
+          `ref_${claim.referrerId}`
+        );
+
+        if (result.success) {
+          console.log(
+            `Pending referral recovered: newUser=${newUserId}, reward=${result.reward}`
+          );
+        } else {
+          console.log(
+            `Pending referral not recovered: newUser=${newUserId}, reason=${result.reason}`
+          );
+        }
+      } catch (error) {
+        console.error(
+          `Referral recovery failed for ${newUserId}:`,
+          error.message
+        );
+      }
+    }
+  } catch (error) {
+    console.error("Referral recovery error:", error.message);
+  } finally {
+    referralRecoveryRunning = false;
   }
 }
 
@@ -1483,7 +1623,6 @@ app.get(
   }
 );
 
-
 /* Notify users about new video with thumbnail */
 
 async function notifyAllUsers(video) {
@@ -1564,7 +1703,6 @@ async function notifyAllUsers(video) {
 
   return ids.length;
 }
-
 
 /* Admin add video */
 
@@ -1892,5 +2030,14 @@ app.get("/", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Premium Video server running on port ${PORT}`);
+
   setupWebhook();
+
+  setTimeout(() => {
+    recoverPendingReferralClaims();
+  }, 5000);
+
+  setInterval(() => {
+    recoverPendingReferralClaims();
+  }, 60000);
 });
