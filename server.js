@@ -855,8 +855,14 @@ app.post(
         current.ymids = current.ymids || {};
 
         if (current.ymids[ymidHash]) {
-          return;
-        }
+  console.error("DUPLICATE VIDEO AD:", {
+    userId: String(user.id),
+    videoId,
+    attemptId,
+    ymidHash
+  });
+  return;
+}
 
         const previousAdAt =
           Number(current.lastAdAt) ||
