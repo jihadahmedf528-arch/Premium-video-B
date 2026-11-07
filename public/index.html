@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -20,12 +19,23 @@
 body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,sans-serif;padding-bottom:35px}
 button{font-family:inherit;cursor:pointer}
 .container{max-width:600px;margin:auto;padding:15px}
-.header{display:flex;align-items:center;justify-content:space-between;margin:8px 0 22px}
-.brand{display:flex;align-items:center;gap:10px}
-.logo{width:43px;height:43px;border-radius:13px;background:linear-gradient(135deg,var(--red),var(--orange));display:grid;place-items:center;font-size:23px}
+.header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0 22px}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.logo{width:43px;height:43px;border-radius:13px;background:linear-gradient(135deg,var(--red),var(--orange));display:grid;place-items:center;font-size:23px;flex-shrink:0}
 .brand h2{font-size:19px;margin:0}
 .brand small{color:var(--muted);font-size:11px}
-.refer-btn{border:1px solid #81302e;background:#281313;color:#ff7777;border-radius:10px;padding:10px 15px;font-weight:bold;font-size:13px}
+.header-actions{display:flex;align-items:center;gap:7px}
+.credit-display{
+  border:1px solid #76521f;
+  background:#2b2010;
+  color:#ffd36b;
+  border-radius:10px;
+  padding:10px 11px;
+  font-weight:bold;
+  font-size:12px;
+  white-space:nowrap;
+}
+.refer-btn{border:1px solid #81302e;background:#281313;color:#ff7777;border-radius:10px;padding:10px 13px;font-weight:bold;font-size:13px;white-space:nowrap}
 .section-title{font-size:16px;font-weight:bold;margin:22px 0 12px}
 .promo{background:linear-gradient(110deg,#351414,#1c1111);border:1px solid #602424;border-radius:15px;padding:16px;display:flex;align-items:center;justify-content:space-between;gap:10px}
 .promo-info{display:flex;align-items:center;gap:12px}
@@ -61,6 +71,7 @@ button{font-family:inherit;cursor:pointer}
 .video-actions{display:flex;gap:9px;flex-wrap:wrap}
 .video-actions button{flex:1;min-width:120px;padding:11px 8px;border-radius:9px;border:0;font-size:12px;font-weight:bold}
 .unlock-btn{background:linear-gradient(100deg,#ff303d,#ff8126);color:white}
+.credit-unlock-btn{background:linear-gradient(100deg,#a66b12,#e7a82d);color:#160e03}
 .video-actions button:disabled{opacity:.5;cursor:not-allowed}
 .pagination{display:flex;justify-content:center;align-items:center;gap:16px;margin:22px 0}
 .page-btn{background:#241616;border:1px solid #593030;color:white;border-radius:8px;padding:10px 15px}
@@ -78,67 +89,23 @@ button{font-family:inherit;cursor:pointer}
 .footer{text-align:center;color:#746969;font-size:10px;margin-top:30px}
 
 /* VIDEO PLAYER PAGE */
-.player-screen{
-  display:none;
-  position:fixed;
-  inset:0;
-  z-index:200;
-  background:#050505;
-  overflow-y:auto;
-}
-.player-header{
-  height:58px;
-  display:flex;
-  align-items:center;
-  gap:12px;
-  padding:0 15px;
-  border-bottom:1px solid #292020;
-}
-.player-back{
-  border:0;
-  background:#261717;
-  color:white;
-  border-radius:9px;
-  padding:10px 14px;
-  font-weight:bold;
-}
-.player-heading{
-  font-size:15px;
-  font-weight:bold;
-  overflow:hidden;
-  white-space:nowrap;
-  text-overflow:ellipsis;
-}
-.player-content{
-  width:100%;
-  max-width:800px;
-  margin:25px auto;
-  padding:0 12px;
-}
-.player-video{
-  display:block;
-  width:100%;
-  max-height:70vh;
-  background:#000;
-  border-radius:12px;
-  outline:none;
-}
-.player-title{
-  font-size:16px;
-  margin:17px 0 8px;
-  overflow-wrap:anywhere;
-}
-.player-note{
-  color:#999;
-  font-size:12px;
-  line-height:1.6;
-}
-.player-error{
-  display:none;
-  color:#ff7777;
-  padding:15px;
-  font-size:13px;
-  line-height:1.6;
+.player-screen{display:none;position:fixed;inset:0;z-index:200;background:#050505;overflow-y:auto}
+.player-header{height:58px;display:flex;align-items:center;gap:12px;padding:0 15px;border-bottom:1px solid #292020}
+.player-back{border:0;background:#261717;color:white;border-radius:9px;padding:10px 14px;font-weight:bold}
+.player-heading{font-size:15px;font-weight:bold;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.player-content{width:100%;max-width:800px;margin:25px auto;padding:0 12px}
+.player-video{display:block;width:100%;max-height:70vh;background:#000;border-radius:12px;outline:none}
+.player-title{font-size:16px;margin:17px 0 8px;overflow-wrap:anywhere}
+.player-note{color:#999;font-size:12px;line-height:1.6}
+.player-error{display:none;color:#ff7777;padding:15px;font-size:13px;line-height:1.6}
+
+@media(max-width:380px){
+  .brand h2{font-size:16px}
+  .brand small{font-size:10px}
+  .logo{width:37px;height:37px}
+  .header-actions{gap:5px}
+  .credit-display{padding:9px 8px;font-size:11px}
+  .refer-btn{padding:9px 10px;font-size:12px}
 }
 </style>
 </head>
@@ -153,7 +120,11 @@ button{font-family:inherit;cursor:pointer}
       <small>Watch • Enjoy • Discover</small>
     </div>
   </div>
-  <button class="refer-btn" onclick="openReferral()">Refer</button>
+
+  <div class="header-actions">
+    <div class="credit-display" id="creditDisplay">🪙 <span id="creditBalance">0</span> Credits</div>
+    <button class="refer-btn" onclick="openReferral()">Refer</button>
+  </div>
 </header>
 
 <div class="promo">
@@ -205,7 +176,6 @@ button{font-family:inherit;cursor:pointer}
 <div class="footer">© 2026 Premium Video • All Rights Reserved</div>
 </div>
 
-<!-- আলাদা ভিডিও প্লেয়ার পেজ -->
 <div class="player-screen" id="playerScreen">
   <div class="player-header">
     <button class="player-back" onclick="closeVideoPlayer()">← Back</button>
@@ -213,17 +183,8 @@ button{font-family:inherit;cursor:pointer}
   </div>
 
   <div class="player-content">
-    <video
-      id="videoPlayer"
-      class="player-video"
-      controls
-      playsinline
-      webkit-playsinline
-      controlsList="nodownload noplaybackrate"
-      disablePictureInPicture
-      preload="metadata"
-    ></video>
-
+    <video id="videoPlayer" class="player-video" controls playsinline webkit-playsinline
+      controlsList="nodownload noplaybackrate" disablePictureInPicture preload="metadata"></video>
     <div class="player-error" id="playerError"></div>
     <h3 class="player-title" id="playerTitle">Video</h3>
     <p class="player-note">ভিডিও দেখা শেষ হলে Back বাটনে ক্লিক করে ফিরে আসো।</p>
@@ -254,6 +215,7 @@ let autoAdStarted=false;
 let videoAdBusy=false;
 let unlockBusy=false;
 let currentPlayerUrl="";
+let creditBalance=0;
 
 const headers={
   "Content-Type":"application/json",
@@ -297,6 +259,32 @@ async function copyText(text){
 
 async function copyReferral(){
   if(referralUrl)await copyText(referralUrl);
+}
+
+/* CREDIT BALANCE */
+
+function updateCreditBalance(value){
+  const parsed=Number(value);
+  creditBalance=Number.isFinite(parsed)&&parsed>=0?parsed:0;
+  document.getElementById("creditBalance").textContent=creditBalance;
+}
+
+async function loadCreditBalance(){
+  if(!tg?.initData)return;
+
+  try{
+    const res=await fetch(API+"/api/credits/status",{headers});
+    const data=await res.json();
+
+    if(!res.ok||!data.success){
+      console.warn("Credit status unavailable:",data.error||res.status);
+      return;
+    }
+
+    updateCreditBalance(data.credits);
+  }catch(e){
+    console.error("Credit balance error:",e);
+  }
 }
 
 /* MONETAG */
@@ -568,7 +556,12 @@ function renderVideos(){
     watchAds.textContent="▶ Watch Ads to Unlock";
     watchAds.onclick=()=>startVideoAdsUnlock(video.id);
 
-    actions.append(watchAds);
+    const useCredit=document.createElement("button");
+    useCredit.className="credit-unlock-btn";
+    useCredit.textContent="🪙 Unlock with 1 Credit";
+    useCredit.onclick=()=>unlockVideoWithCredit(video.id);
+
+    actions.append(watchAds,useCredit);
     content.append(title,meta,actions);
     card.append(img,content);
     list.appendChild(card);
@@ -630,9 +623,76 @@ function openReferral(){
 
   showModal(
     title,
-    message+"\n\n"+instructions+"\n\nতোমার Referral Link:\n"+referralUrl,
+    message+"\n\n"+instructions+
+    "\n\nতোমার Referral Link:\n"+referralUrl+
+    "\n\n🪙 তোমার বর্তমান Credit: "+creditBalance,
     true
   );
+}
+
+/* UNLOCK VIDEO WITH CREDIT */
+
+async function unlockVideoWithCredit(videoId){
+  if(unlockBusy||videoAdBusy||rewardBusy)return;
+
+  if(!tg?.initData){
+    showModal("Telegram Required","Credit ব্যবহার করতে Telegram Mini App থেকে প্রবেশ করো।");
+    return;
+  }
+
+  if(!videoId){
+    showModal("Unlock Error","ভিডিওর ID পাওয়া যায়নি।");
+    return;
+  }
+
+  if(creditBalance<1){
+    showModal(
+      "Not Enough Credits",
+      "তোমার পর্যাপ্ত Credit নেই।\n\nবন্ধুদের Referral Link শেয়ার করে Credit সংগ্রহ করো অথবা Watch Ads দিয়ে ভিডিও Unlock করো।"
+    );
+    return;
+  }
+
+  const video=videos.find(v=>String(v.id)===String(videoId))||{};
+
+  unlockBusy=true;
+  setVideoButtonsDisabled(true,"⏳ Unlocking...");
+
+  try{
+    const res=await fetch(API+"/api/credits/unlock",{
+      method:"POST",
+      headers,
+      body:JSON.stringify({videoId:String(videoId)})
+    });
+
+    const data=await res.json();
+
+    if(!res.ok||!data.success){
+      if(data.credits!==undefined)updateCreditBalance(data.credits);
+      throw new Error(data.error||"Credit দিয়ে ভিডিও Unlock করা যায়নি।");
+    }
+
+    if(data.credits!==undefined){
+      updateCreditBalance(data.credits);
+    }else{
+      await loadCreditBalance();
+    }
+
+    if(!data.videoUrl){
+      throw new Error("ভিডিওর URL পাওয়া যায়নি। Admin Panel-এ Video URL পরীক্ষা করো।");
+    }
+
+    hideModal();
+    openVideoPlayer(data.videoUrl,video.title||"Premium Video");
+
+  }catch(e){
+    console.error("Credit unlock error:",e);
+    showModal("Credit Unlock Failed",e.message||"ভিডিও Unlock করা যায়নি।");
+    await loadCreditBalance();
+  }finally{
+    unlockBusy=false;
+    setVideoButtonsDisabled(false);
+  }
 }
 
 /* VIDEO PLAYER */
@@ -668,9 +728,7 @@ function openVideoPlayer(url,title){
     tg.BackButton.onClick(closeVideoPlayer);
   }
 
-  player.play().catch(()=>{
-    // কিছু ফোনে autoplay বন্ধ থাকলে ইউজার Play চাপবে।
-  });
+  player.play().catch(()=>{});
 
   window.scrollTo(0,0);
 }
@@ -698,7 +756,7 @@ document.getElementById("videoPlayer").addEventListener("error",()=>{
   error.textContent="ভিডিওটি চালানো যাচ্ছে না। Admin Panel-এ Video URL পরীক্ষা করো। সরাসরি MP4 বা সমর্থিত ভিডিও URL ব্যবহার করো।";
 });
 
-/* PLAYER DOWNLOAD BLOCKING - BASIC */
+/* PLAYER BASIC PROTECTION */
 
 document.getElementById("videoPlayer").addEventListener("contextmenu",e=>{
   e.preventDefault();
@@ -737,13 +795,10 @@ async function startVideoAdsUnlock(videoId){
     await waitForMonetag();
 
     let completed=0;
-
     let video=videos.find(v=>String(v.id)===String(videoId))||{};
-
     let required=getVideoAdsRequired(video);
 
     while(completed<required){
-
       await showVideoUnlockAd(completed,required);
 
       showModal(
@@ -754,9 +809,7 @@ async function startVideoAdsUnlock(videoId){
       const countRes=await fetch(API+"/api/video/ad/count",{
         method:"POST",
         headers,
-        body:JSON.stringify({
-          videoId:String(videoId)
-        })
+        body:JSON.stringify({videoId:String(videoId)})
       });
 
       const countData=await countRes.json();
@@ -769,18 +822,12 @@ async function startVideoAdsUnlock(videoId){
       required=Math.max(1,Number(countData.required)||required);
 
       if(countData.unlocked){
-
         if(!countData.videoUrl){
           throw new Error("ভিডিওর লিংক পাওয়া যায়নি। Admin Panel-এ Video URL পরীক্ষা করো।");
         }
 
         hideModal();
-
-        openVideoPlayer(
-          countData.videoUrl,
-          video.title||"Premium Video"
-        );
-
+        openVideoPlayer(countData.videoUrl,video.title||"Premium Video");
         return;
       }
 
@@ -914,10 +961,7 @@ async function watchRewardAd(){
     const result=await verifyRewardAd(ymid);
 
     if(result.unlocked){
-      showModal(
-        "🎉 Reward Unlocked!",
-        result.unlockMessage||"তোমার Reward Link প্রস্তুত।"
-      );
+      showModal("🎉 Reward Unlocked!",result.unlockMessage||"তোমার Reward Link প্রস্তুত।");
     }else{
       showModal(
         "✅ Ad Completed",
@@ -970,6 +1014,7 @@ async function init(){
   if(tg?.initData){
     try{
       await fetch(API+"/api/me",{headers});
+      await loadCreditBalance();
       await loadRewardStatus();
     }catch(e){
       console.error("User registration error",e);
