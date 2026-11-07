@@ -887,21 +887,40 @@ app.post(
       const updated = progressResult.snapshot.val();
 
       if (!progressResult.committed || !updated) {
-        await claimRef.remove();
+ await claimRef.remove();
 
-        if (retryAfterMs > 0) {
-          return res.status(429).json({
-            success: false,
-            error: "Please wait before counting the next ad",
-            retryAfterMs
-          });
-        }
+  if (retryAfterMs > 0) {
+    return res.status(429).json({
+      success: false,
+      error: "Please wait before counting the next ad",
+      retryAfterMs
+    });
+  }
 
-        return res.status(409).json({
-          success: false,
-          error: "Could not update this ad session"
-        });
-      }
+  const latestAttempt = await attemptRef.once("value");
+  const latest = latestAttempt.val();
+
+  let reason = "Unknown session transaction failure";
+
+  if (!latest) {
+    reason = "Session does not exist";
+  } else if (String(latest.userId) !== String(user.id)) {
+    reason = "Session user mismatch";
+  } else if (String(latest.videoId) !== videoId) {
+    reason = "Session video mismatch";
+  } else if (latest.status !== "active") {
+    reason = "Session is not active: " + latest.status;
+  } else if (Number(latest.expiresAt) < Date.now()) {
+    reason = "Session expired";
+  }
+
+  console.error("VIDEO SESSION UPDATE FAILED:", reason);
+
+  return res.status(409).json({
+    success: false,
+    error: reason
+  });
+}
 
       await claimRef.update({ creditedAt: Date.now() });
 
