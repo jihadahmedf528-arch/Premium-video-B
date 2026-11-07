@@ -8,7 +8,7 @@
 <title>Premium Video</title>
 
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script src="https://cdn.adexium.tech/assets/js/tg-ads-co-widget.min.js"></script>
+<script src="https://libtl.com/sdk.js" data-zone="12187766" data-sdk="show_12187766"></script>
 
 <style>
 :root{
@@ -61,7 +61,6 @@ button{font-family:inherit;cursor:pointer}
 .video-actions{display:flex;gap:9px;flex-wrap:wrap}
 .video-actions button{flex:1;min-width:120px;padding:11px 8px;border-radius:9px;border:0;font-size:12px;font-weight:bold}
 .unlock-btn{background:linear-gradient(100deg,#ff303d,#ff8126);color:white}
-.watch-btn{background:#252020;color:#ddd;border:1px solid #443333!important}
 .video-actions button:disabled{opacity:.5;cursor:not-allowed}
 .pagination{display:flex;justify-content:center;align-items:center;gap:16px;margin:22px 0}
 .page-btn{background:#241616;border:1px solid #593030;color:white;border-radius:8px;padding:10px 15px}
@@ -157,29 +156,14 @@ if(tg){tg.ready();tg.expand()}
 
 const API="";
 const BOT_USERNAME="viralbox9_bot";
-
-const ADEXIUM_IDS={
-  auto:"5ee6c127-84ba-4b38-a1e1-564e145ae21d",
-  video:"f07e2a5c-104d-4d72-9eff-987e997ffcdb",
-  reward:"d7ac754e-70bc-484b-8346-75eb7b5fa3b6"
-};
-
-const AUTO_FIRST_SECONDS=30;
-const AUTO_INTERVAL_SECONDS=90;
+const MONETAG_ZONE_ID="12187766";
 
 let currentPage=1,totalPages=1,currentCategory="all";
 let settings={},videos=[],rewardUrl="",rewardBusy=false,referralUrl="";
-
-let autoAdWidget=null;
-let videoAdWidget=null;
-let rewardAdWidget=null;
-
 let autoAdStarted=false;
 let manualAdBusy=false;
-let unlockBusy=false;
 let videoAdBusy=false;
-
-const manualAdStates=new Map();
+let unlockBusy=false;
 
 const headers={
   "Content-Type":"application/json",
@@ -216,131 +200,58 @@ async function copyText(text){
 }
 async function copyReferral(){if(referralUrl)await copyText(referralUrl)}
 
-/* MANUAL ADEXIUM WIDGET */
+/* MONETAG */
 
-function finishManualAd(widget,completed){
-  const state=manualAdStates.get(widget);
-  if(!state||state.finished)return;
-
-  state.finished=true;
-  clearTimeout(state.timeout);
-
-  const resolve=state.resolve;
-  const taskId=state.taskId;
-
-  manualAdStates.delete(widget);
-  manualAdBusy=false;
-
-  resolve({
-    completed:!!completed,
-    taskId:taskId||null
-  });
+function makeYmid(){
+  if(window.crypto?.randomUUID)return window.crypto.randomUUID();
+  return "pv_"+Date.now()+"_"+Math.random().toString(36).slice(2)+"_"+Math.random().toString(36).slice(2);
 }
 
-function createManualAdWidget(widgetId,label){
-  if(typeof window.AdexiumWidget!=="function"){
-    console.warn("Adexium SDK unavailable:",label);
-    return null;
-  }
+function monetagReady(){
+  return typeof window["show_"+MONETAG_ZONE_ID]==="function";
+}
 
-  try{
-    const widget=new window.AdexiumWidget({
-      wid:widgetId,
-      adFormat:"interstitial",
-      debug:false
-    });
+function waitForMonetag(){
+  return new Promise((resolve,reject)=>{
+    if(monetagReady()){
+      resolve();
+      return;
+    }
 
-    widget.on("adReceived",ad=>{
-      const state=manualAdStates.get(widget);
-      if(!state||state.finished)return;
+    let elapsed=0;
+    const check=setInterval(()=>{
+      elapsed+=250;
 
-      const taskId=ad?.id;
-
-      if(!taskId){
-        console.error(label+" ad task ID missing");
-        finishManualAd(widget,false);
-        return;
+      if(monetagReady()){
+        clearInterval(check);
+        resolve();
+      }else if(elapsed>=10000){
+        clearInterval(check);
+        reject(new Error("Monetag SDK লোড হয়নি। কিছুক্ষণ পর আবার চেষ্টা করো।"));
       }
-
-      state.taskId=String(taskId);
-
-      try{
-        widget.displayAd(ad);
-      }catch(e){
-        console.error(label+" display error:",e);
-        finishManualAd(widget,false);
-      }
-    });
-
-    widget.on("adPlaybackCompleted",()=>{
-      const state=manualAdStates.get(widget);
-      if(state&&state.taskId){
-        finishManualAd(widget,true);
-      }
-    });
-
-    widget.on("noAdFound",()=>{
-      finishManualAd(widget,false);
-    });
-
-    widget.on("adClosed",()=>{
-      const state=manualAdStates.get(widget);
-      if(state&&!state.taskId){
-        finishManualAd(widget,false);
-      }
-    });
-
-    console.log(label+" Adexium widget initialized");
-    return widget;
-
-  }catch(e){
-    console.error(label+" Adexium initialization error:",e);
-    return null;
-  }
+    },250);
+  });
 }
 
 /*
-  Rewarded interstitial:
-  requestRewardedAd("interstitial")
-
-  এটি ভিডিও আনলক ও Special Reward-এর জন্য।
+  Rewarded ad:
+  Promise resolve হলেই বিজ্ঞাপন সম্পন্ন হিসেবে গণনা হবে।
+  Promise reject হলে বিজ্ঞাপন গণনা হবে না।
 */
 
-function requestManualAd(widget){
-  return new Promise(resolve=>{
-    if(!widget||manualAdBusy){
-      resolve({completed:false,taskId:null});
-      return;
-    }
+async function showRewardedMonetag(requestVar){
+  await waitForMonetag();
 
-    if(typeof widget.requestRewardedAd!=="function"){
-      console.error("Adexium requestRewardedAd API unavailable");
-      resolve({completed:false,taskId:null});
-      return;
-    }
+  const ymid=makeYmid();
+  const showAd=window["show_"+MONETAG_ZONE_ID];
 
-    manualAdBusy=true;
-
-    const state={
-      resolve,
-      taskId:null,
-      finished:false,
-      timeout:null
-    };
-
-    manualAdStates.set(widget,state);
-
-    state.timeout=setTimeout(()=>{
-      finishManualAd(widget,false);
-    },60000);
-
-    try{
-      widget.requestRewardedAd("interstitial");
-    }catch(e){
-      console.error("Adexium rewarded ad request error:",e);
-      finishManualAd(widget,false);
-    }
+  await showAd({
+    type:"end",
+    ymid:ymid,
+    requestVar:requestVar
   });
+
+  return ymid;
 }
 
 /* AUTOMATIC INTERSTITIAL */
@@ -348,65 +259,43 @@ function requestManualAd(widget){
 function initAutomaticAds(){
   if(autoAdStarted)return;
 
-  if(settings.ads?.adexiumEnabled===false){
-    console.log("Adexium ads disabled by admin");
+  const ads=settings.ads||{};
+
+  if(ads.automaticAdsEnabled===false){
+    console.log("Automatic Monetag ads disabled by admin");
     return;
   }
 
-  if(typeof window.AdexiumWidget!=="function"){
-    console.warn("Adexium SDK not loaded for automatic ads");
+  if(ads.network&&ads.network!=="monetag"){
+    console.log("Monetag is not the selected ad network");
+    return;
+  }
+
+  if(!monetagReady()){
+    console.warn("Monetag SDK not ready for automatic ads");
     return;
   }
 
   try{
-    const widgetId=settings.ads?.autoWidgetId||ADEXIUM_IDS.auto;
+    const showAd=window["show_"+MONETAG_ZONE_ID];
 
-    autoAdWidget=new window.AdexiumWidget({
-      wid:widgetId,
-      adFormat:"interstitial",
-      firstAdImpressionIntervalInSeconds:
-        Number(settings.ads?.autoFirstAdSeconds)||AUTO_FIRST_SECONDS,
-      adImpressionIntervalInSeconds:
-        Number(settings.ads?.autoIntervalSeconds)||AUTO_INTERVAL_SECONDS,
-      debug:true
+    showAd({
+      type:"inApp",
+      inAppSettings:{
+        frequency:3,
+        capping:2,
+        interval:Number(ads.autoIntervalSeconds)||90,
+        timeout:Number(ads.autoFirstAdSeconds)||30,
+        everyPage:false
+      }
     });
 
-    autoAdWidget.autoMode();
     autoAdStarted=true;
-
-    console.log("Automatic Adexium ads started");
+    console.log("Monetag automatic interstitial initialized");
 
   }catch(e){
-    console.error("Automatic Adexium initialization error:",e);
-    autoAdWidget=null;
+    console.error("Automatic Monetag initialization error:",e);
   }
-}
-
-/* INITIALIZE WIDGETS */
-
-function initAdexium(){
-  if(settings.ads?.adexiumEnabled===false)return;
-
-  if(typeof window.AdexiumWidget!=="function"){
-    console.warn("Adexium SDK not loaded");
-    return;
-  }
-
-  if(!videoAdWidget){
-    videoAdWidget=createManualAdWidget(
-      settings.ads?.videoWidgetId||ADEXIUM_IDS.video,
-      "Video Unlock"
-    );
-  }
-
-  if(!rewardAdWidget){
-    rewardAdWidget=createManualAdWidget(
-      settings.ads?.rewardWidgetId||ADEXIUM_IDS.reward,
-      "Special Reward"
-    );
-  }
-
-  initAutomaticAds();
 }
 
 /* SETTINGS */
@@ -436,7 +325,7 @@ async function loadSettings(){
       reward.unlockMessage||`Watch ${required} ads to unlock your reward URL.`;
 
     renderCategories();
-    initAdexium();
+    initAutomaticAds();
 
   }catch(e){
     console.error("Settings error",e);
@@ -557,12 +446,7 @@ function renderVideos(){
     watchAds.textContent="▶ Watch Ads to Unlock";
     watchAds.onclick=()=>startVideoAdsUnlock(video.id);
 
-    const unlockCredit=document.createElement("button");
-    unlockCredit.className="watch-btn";
-    unlockCredit.textContent="🔓 Unlock with 1 Credit";
-    unlockCredit.onclick=()=>startUnlock(video.id);
-
-    actions.append(watchAds,unlockCredit);
+    actions.append(watchAds);
     content.append(title,meta,actions);
     card.append(img,content);
     list.appendChild(card);
@@ -629,74 +513,7 @@ function openReferral(){
   );
 }
 
-/* CREDIT UNLOCK */
-
-async function startUnlock(videoId){
-  if(unlockBusy||videoAdBusy||rewardBusy)return;
-
-  if(!tg?.initData){
-    showModal("Telegram Required","ভিডিও আনলক করতে Telegram Mini App থেকে প্রবেশ করো।");
-    return;
-  }
-
-  if(!videoId){
-    showModal("Unlock Error","ভিডিওর ID পাওয়া যায়নি।");
-    return;
-  }
-
-  unlockBusy=true;
-  setVideoButtonsDisabled(true,"⏳ Unlocking...");
-
-  try{
-    const requestId=(window.crypto?.randomUUID)
-      ?window.crypto.randomUUID()
-      :"unlock_"+Date.now()+"_"+Math.random().toString(36).slice(2);
-
-    const res=await fetch(API+"/api/video/unlock",{
-      method:"POST",
-      headers,
-      body:JSON.stringify({
-        videoId:String(videoId),
-        requestId
-      })
-    });
-
-    const data=await res.json();
-
-    if(!res.ok||!data.success){
-      if(res.status===403){
-        throw new Error(data.error||"তোমার পর্যাপ্ত Credit নেই। Referral করে Credit সংগ্রহ করো।");
-      }
-
-      if(res.status===409){
-        throw new Error(data.error||"এই Unlock Request চলছে। কিছুক্ষণ পর আবার চেষ্টা করো।");
-      }
-
-      throw new Error(data.error||"ভিডিও আনলক করা যায়নি। আবার চেষ্টা করো।");
-    }
-
-    if(!data.videoUrl){
-      throw new Error("ভিডিওর লিংক পাওয়া যায়নি। Admin Panel-এ Video URL পরীক্ষা করো।");
-    }
-
-    showModal(
-      "🎉 Video Unlocked!",
-      "ভিডিও সফলভাবে আনলক হয়েছে।\n\nঅবশিষ্ট Credit: "+
-      Number(data.credits??0)+"\n\nভিডিওটি খুলতে নিচের লিংক ব্যবহার করো।"
-    );
-
-    openExternal(data.videoUrl);
-
-  }catch(e){
-    console.error("Video unlock error:",e);
-    showModal("Unlock Failed",e.message||"ভিডিও আনলক করা যায়নি।");
-  }finally{
-    unlockBusy=false;
-    setVideoButtonsDisabled(false);
-  }
-}
-
-/* VIDEO UNLOCK THROUGH REWARDED WIDGET */
+/* VIDEO AD UNLOCK */
 
 async function startVideoAdsUnlock(videoId){
   if(videoAdBusy||unlockBusy||rewardBusy)return;
@@ -711,17 +528,8 @@ async function startVideoAdsUnlock(videoId){
     return;
   }
 
-  if(settings.ads?.adexiumEnabled===false){
-    showModal("Ads Disabled","Admin বিজ্ঞাপন বন্ধ রেখেছেন। Credit দিয়ে আনলক করতে পারো।");
-    return;
-  }
-
-  if(!videoAdWidget){
-    initAdexium();
-  }
-
-  if(!videoAdWidget){
-    showModal("Adexium Not Ready","Video Unlock Adexium Widget প্রস্তুত নয়। কিছুক্ষণ পর আবার চেষ্টা করো।");
+  if(settings.ads?.network&&settings.ads.network!=="monetag"){
+    showModal("Ads Unavailable","বর্তমানে Monetag বিজ্ঞাপন চালু নেই।");
     return;
   }
 
@@ -729,6 +537,8 @@ async function startVideoAdsUnlock(videoId){
   setVideoButtonsDisabled(true,"⏳ Preparing...");
 
   try{
+    await waitForMonetag();
+
     const startRes=await fetch(API+"/api/video/ad/start",{
       method:"POST",
       headers,
@@ -750,16 +560,14 @@ async function startVideoAdsUnlock(videoId){
     }
 
     for(let i=completed;i<required;i++){
+      hideModal();
+
       showModal(
         "📺 Video Unlock",
-        `ভিডিও আনলক করতে ${required}টি বিজ্ঞাপন সম্পন্ন করতে হবে।\n\nসম্পন্ন: ${completed} / ${required}\n\nবিজ্ঞাপন সম্পন্ন না হলে Credit দিয়ে আনলক করতে পারো।`
+        `ভিডিও আনলক করতে ${required}টি বিজ্ঞাপন সম্পন্ন করতে হবে।\n\nসম্পন্ন: ${completed} / ${required}\n\nবিজ্ঞাপন সম্পন্ন না হলে এই প্রক্রিয়া আবার শুরু করতে হবে।`
       );
 
-      const adResult=await requestManualAd(videoAdWidget);
-
-      if(!adResult.completed||!adResult.taskId){
-        throw new Error("বিজ্ঞাপন সম্পন্ন হয়নি অথবা Adexium Task ID পাওয়া যায়নি। আবার চেষ্টা করো।");
-      }
+      const ymid=await showRewardedMonetag("video_unlock");
 
       const verifyRes=await fetch(API+"/api/video/ad/verify",{
         method:"POST",
@@ -767,7 +575,7 @@ async function startVideoAdsUnlock(videoId){
         body:JSON.stringify({
           videoId:String(videoId),
           attemptId:String(attemptId),
-          taskId:String(adResult.taskId)
+          ymid:String(ymid)
         })
       });
 
@@ -784,6 +592,8 @@ async function startVideoAdsUnlock(videoId){
           throw new Error("ভিডিওর লিংক পাওয়া যায়নি। Admin Panel-এ Video URL পরীক্ষা করো।");
         }
 
+        hideModal();
+
         showModal(
           "🎉 Video Unlocked!",
           `অভিনন্দন! তুমি ${completed}টি বিজ্ঞাপন সম্পন্ন করেছ। ভিডিও আনলক হয়েছে।`
@@ -794,15 +604,15 @@ async function startVideoAdsUnlock(videoId){
       }
 
       showModal(
-        "✅ Ad Verified",
-        `একটি বিজ্ঞাপন সফলভাবে যাচাই হয়েছে।\n\nProgress: ${completed} / ${required}\n\nপরবর্তী বিজ্ঞাপনের জন্য প্রস্তুত হও।`
+        "✅ Ad Completed",
+        `একটি বিজ্ঞাপন সম্পন্ন হয়েছে।\n\nProgress: ${completed} / ${required}\n\nপরবর্তী বিজ্ঞাপন লোড হচ্ছে।`
       );
     }
 
     if(completed>=required){
       showModal(
         "Unlock Processing",
-        "সব বিজ্ঞাপন সম্পন্ন হয়েছে। কিন্তু ভিডিও লিংক পাওয়া যায়নি। আবার চেষ্টা করার আগে Admin-এর সঙ্গে যোগাযোগ করো।"
+        "সব বিজ্ঞাপন সম্পন্ন হয়েছে। কিন্তু ভিডিও লিংক পাওয়া যায়নি। Admin-এর সঙ্গে যোগাযোগ করো।"
       );
     }
 
@@ -858,7 +668,7 @@ function updateRewardUI(data){
     rewardUrl="";
     button.style.display="block";
     result.style.display="none";
-    button.disabled=!data.enabled||rewardBusy;
+    button.disabled=data.enabled===false||rewardBusy;
     button.textContent=rewardBusy?"⏳ Please wait...":"▶ Watch Ads";
   }
 }
@@ -882,13 +692,13 @@ async function loadRewardStatus(){
   }
 }
 
-/* SPECIAL REWARD VERIFICATION */
+/* SPECIAL REWARD AD */
 
-async function verifyRewardTask(taskId){
+async function verifyRewardAd(ymid){
   const res=await fetch(API+"/api/reward/verify",{
     method:"POST",
     headers,
-    body:JSON.stringify({taskId})
+    body:JSON.stringify({ymid:String(ymid)})
   });
 
   const data=await res.json();
@@ -909,17 +719,8 @@ async function watchRewardAd(){
     return;
   }
 
-  if(settings.ads?.adexiumEnabled===false){
-    showModal("Ads Disabled","Admin বিজ্ঞাপন বন্ধ রেখেছেন।");
-    return;
-  }
-
-  if(!rewardAdWidget){
-    initAdexium();
-  }
-
-  if(!rewardAdWidget){
-    showModal("Ad Loading","Reward Adexium Widget প্রস্তুত নয়। কিছুক্ষণ পর আবার চেষ্টা করো।");
+  if(settings.reward?.enabled===false){
+    showModal("Reward Disabled","Admin Special Reward বন্ধ রেখেছেন।");
     return;
   }
 
@@ -930,15 +731,11 @@ async function watchRewardAd(){
   button.textContent="⏳ Showing Ad...";
 
   try{
-    const adResult=await requestManualAd(rewardAdWidget);
-
-    if(!adResult.completed||!adResult.taskId){
-      throw new Error("বিজ্ঞাপন পাওয়া যায়নি বা বিজ্ঞাপন সম্পন্ন হয়নি।");
-    }
+    const ymid=await showRewardedMonetag("special_reward");
 
     button.textContent="⏳ Verifying Ad...";
 
-    const result=await verifyRewardTask(adResult.taskId);
+    const result=await verifyRewardAd(ymid);
 
     if(result.unlocked){
       showModal(
@@ -947,8 +744,8 @@ async function watchRewardAd(){
       );
     }else{
       showModal(
-        "Ad Verified",
-        "একটি বিজ্ঞাপন যাচাই হয়েছে। Progress আপডেট করা হয়েছে।"
+        "✅ Ad Completed",
+        `একটি বিজ্ঞাপন সম্পন্ন হয়েছে।\n\nProgress: ${Number(result.completed)||0} / ${Number(result.required)||50}`
       );
     }
 
@@ -959,8 +756,10 @@ async function watchRewardAd(){
     rewardBusy=false;
     await loadRewardStatus();
 
-    button.disabled=settings.reward?.enabled===false;
-    if(!rewardUrl)button.textContent="▶ Watch Ads";
+    if(!rewardUrl){
+      button.disabled=settings.reward?.enabled===false;
+      button.textContent="▶ Watch Ads";
+    }
   }
 }
 
@@ -999,6 +798,11 @@ async function init(){
     }catch(e){
       console.error("User registration error",e);
     }
+  }
+
+  // SDK কখনো দেরিতে প্রস্তুত হলে Automatic Ads আবার চালু করার চেষ্টা।
+  if(!autoAdStarted){
+    window.addEventListener("load",initAutomaticAds,{once:true});
   }
 }
 
