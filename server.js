@@ -1,3 +1,4 @@
+
 const express = require("express");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
@@ -15,20 +16,7 @@ const PUBLIC_URL = process.env.PUBLIC_URL || "";
 const VIDEO_BOT_USERNAME = process.env.VIDEO_BOT_USERNAME || "";
 const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || "";
 
-/* Adexium Widget IDs */
-
-const ADEXIUM_REWARD_WID =
-  "d7ac754e-70bc-484b-8346-75eb7b5fa3b6";
-
-const ADEXIUM_AUTO_WID =
-  "5ee6c127-84ba-4b38-a1e1-564e145ae21d";
-
-const ADEXIUM_VIDEO_WID =
-  "f07e2a5c-104d-4d72-9eff-987e997ffcdb";
-
-/* Legacy compatibility */
-
-const ADEXIUM_DEFAULT_WID = ADEXIUM_REWARD_WID;
+const MONETAG_ZONE_ID = "12187766";
 
 let db;
 let firebaseReady = false;
@@ -53,33 +41,23 @@ const DEFAULT_SETTINGS = {
     enabled: true,
     adsRequired: 50,
     unlockUrl: "",
-    unlockMessage:
-      "৫০টি বিজ্ঞাপন সম্পন্ন করে তোমার Reward Unlock করো!"
+    unlockMessage: "৫০টি বিজ্ঞাপন সম্পন্ন করে তোমার Reward Unlock করো!"
   },
 
   referral: {
     enabled: true,
     rewardPerReferral: 1,
     title: "🎁 Referral Program",
-    message:
-      "বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো। তারা তোমার লিংক দিয়ে প্রথমবার Start করলেই তুমি Credit পাবে।",
-    instructions:
-      "১. Referral Link কপি করো।\n২. বন্ধুদের সঙ্গে শেয়ার করো।\n৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।"
+    message: "বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো। তারা তোমার লিংক দিয়ে প্রথমবার Start করলেই তুমি Credit পাবে।",
+    instructions: "১. Referral Link কপি করো।\n২. বন্ধুদের সঙ্গে শেয়ার করো।\n৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।"
   },
 
   ads: {
-    adexiumEnabled: true,
-
-    autoWidgetId: ADEXIUM_AUTO_WID,
-    videoWidgetId: ADEXIUM_VIDEO_WID,
-    rewardWidgetId: ADEXIUM_REWARD_WID,
-
-    // Old setting compatibility
-    adexiumWidgetId: ADEXIUM_VIDEO_WID,
-
+    network: "monetag",
+    monetagZoneId: MONETAG_ZONE_ID,
+    automaticAdsEnabled: true,
     autoFirstAdSeconds: 30,
     autoIntervalSeconds: 90,
-
     adsPerVideo: 2
   },
 
@@ -121,10 +99,7 @@ function initializeFirebase() {
 
     console.log("Firebase connected successfully");
   } catch (error) {
-    console.error(
-      "Firebase initialization failed:",
-      error.message
-    );
+    console.error("Firebase initialization failed:", error.message);
   }
 }
 
@@ -142,10 +117,7 @@ function requireFirebase(req, res, next) {
 }
 
 function safeCompare(a, b) {
-  if (
-    typeof a !== "string" ||
-    typeof b !== "string"
-  ) {
+  if (typeof a !== "string" || typeof b !== "string") {
     return false;
   }
 
@@ -245,9 +217,7 @@ async function telegramRequest(method, body) {
     `https://api.telegram.org/bot${BOT_TOKEN}/${method}`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     }
   );
@@ -256,8 +226,7 @@ async function telegramRequest(method, body) {
 
   if (!response.ok || !result.ok) {
     throw new Error(
-      result.description ||
-      `Telegram API error (${response.status})`
+      result.description || `Telegram API error (${response.status})`
     );
   }
 
@@ -279,42 +248,16 @@ async function saveTelegramUser(user, startParam = "") {
 
   await userRef.update({
     telegramId: String(user.id),
-
-    firstName:
-      user.first_name ||
-      oldUser.firstName ||
-      "",
-
-    lastName:
-      user.last_name ||
-      oldUser.lastName ||
-      "",
-
-    username:
-      user.username ||
-      oldUser.username ||
-      "",
-
-    languageCode:
-      user.language_code ||
-      oldUser.languageCode ||
-      "",
-
+    firstName: user.first_name || oldUser.firstName || "",
+    lastName: user.last_name || oldUser.lastName || "",
+    username: user.username || oldUser.username || "",
+    languageCode: user.language_code || oldUser.languageCode || "",
     isPremium: !!user.is_premium,
-
     joinedAt: oldUser.joinedAt || Date.now(),
     lastActive: Date.now(),
-
-    startParam:
-      startParam ||
-      oldUser.startParam ||
-      "",
-
+    startParam: startParam || oldUser.startParam || "",
     credits: Number(oldUser.credits) || 0,
-
-    totalReferrals:
-      Number(oldUser.totalReferrals) || 0,
-
+    totalReferrals: Number(oldUser.totalReferrals) || 0,
     blocked: false
   });
 
@@ -323,35 +266,24 @@ async function saveTelegramUser(user, startParam = "") {
 
 /* Referral system */
 
-async function processReferral(
-  newUserId,
-  startParam = ""
-) {
-  const match = /^ref_(\d{1,20})$/.exec(
-    String(startParam || "")
-  );
+async function processReferral(newUserId, startParam = "") {
+  const match = /^ref_(\d{1,20})$/.exec(String(startParam || ""));
 
   if (!match) {
-    return {
-      success: false,
-      reason: "No referral"
-    };
+    return { success: false, reason: "No referral" };
   }
 
   const referrerId = match[1];
   const newId = String(newUserId);
 
   if (!newId || referrerId === newId) {
-    return {
-      success: false,
-      reason: "Self referral"
-    };
+    return { success: false, reason: "Self referral" };
   }
 
   try {
     const claimRef = db.ref(`referralClaims/${newId}`);
-
     const newUserRef = db.ref(`users/${newId}`);
+
     const newUserSnap = await newUserRef.once("value");
     const newUserData = newUserSnap.val() || {};
 
@@ -370,29 +302,18 @@ async function processReferral(
 
     if (claim) {
       if (String(claim.referrerId) !== referrerId) {
-        return {
-          success: false,
-          reason: "Referral claim mismatch"
-        };
+        return { success: false, reason: "Referral claim mismatch" };
       }
 
       if (claim.status === "completed") {
-        return {
-          success: false,
-          reason: "Already rewarded"
-        };
+        return { success: false, reason: "Already rewarded" };
       }
     } else {
       if (newUserData.referredBy) {
-        return {
-          success: false,
-          reason: "User already referred"
-        };
+        return { success: false, reason: "User already referred" };
       }
 
-      const settingsSnap = await db
-        .ref("settings/referral")
-        .once("value");
+      const settingsSnap = await db.ref("settings/referral").once("value");
 
       const referralSettings = {
         ...DEFAULT_SETTINGS.referral,
@@ -400,25 +321,17 @@ async function processReferral(
       };
 
       if (referralSettings.enabled === false) {
-        return {
-          success: false,
-          reason: "Referral disabled"
-        };
+        return { success: false, reason: "Referral disabled" };
       }
 
-      const reward = Number(
-        referralSettings.rewardPerReferral
-      );
+      const reward = Number(referralSettings.rewardPerReferral);
 
       if (
         !Number.isFinite(reward) ||
         reward <= 0 ||
         reward > 1000000
       ) {
-        return {
-          success: false,
-          reason: "Invalid referral reward"
-        };
+        return { success: false, reason: "Invalid referral reward" };
       }
 
       const referrerSnap = await db
@@ -426,25 +339,20 @@ async function processReferral(
         .once("value");
 
       if (!referrerSnap.exists()) {
-        return {
-          success: false,
-          reason: "Referrer not found"
-        };
+        return { success: false, reason: "Referrer not found" };
       }
 
-      const claimResult = await claimRef.transaction(
-        current => {
-          if (current) return;
+      const claimResult = await claimRef.transaction(current => {
+        if (current) return;
 
-          return {
-            referrerId,
-            newUserId: newId,
-            reward,
-            status: "pending",
-            createdAt: Date.now()
-          };
-        }
-      );
+        return {
+          referrerId,
+          newUserId: newId,
+          reward,
+          status: "pending",
+          createdAt: Date.now()
+        };
+      });
 
       claim = claimResult.snapshot.val();
 
@@ -459,10 +367,7 @@ async function processReferral(
       }
 
       if (claim.status === "completed") {
-        return {
-          success: false,
-          reason: "Already rewarded"
-        };
+        return { success: false, reason: "Already rewarded" };
       }
     }
 
@@ -473,48 +378,36 @@ async function processReferral(
       reward <= 0 ||
       reward > 1000000
     ) {
-      return {
-        success: false,
-        reason: "Invalid stored reward"
-      };
+      return { success: false, reason: "Invalid stored reward" };
     }
 
     const referrerRef = db.ref(`users/${referrerId}`);
 
-    const referrerResult = await referrerRef.transaction(
-      user => {
-        if (!user) return;
+    const referrerResult = await referrerRef.transaction(user => {
+      if (!user) return;
 
-        user.referrals = user.referrals || {};
+      user.referrals = user.referrals || {};
 
-        if (user.referrals[newId]) {
-          return user;
-        }
-
-        user.credits =
-          (Number(user.credits) || 0) + reward;
-
-        user.totalReferrals =
-          (Number(user.totalReferrals) || 0) + 1;
-
-        user.referrals[newId] = {
-          reward,
-          createdAt:
-            Number(claim.createdAt) || Date.now()
-        };
-
+      if (user.referrals[newId]) {
         return user;
       }
-    );
+
+      user.credits = (Number(user.credits) || 0) + reward;
+      user.totalReferrals = (Number(user.totalReferrals) || 0) + 1;
+
+      user.referrals[newId] = {
+        reward,
+        createdAt: Number(claim.createdAt) || Date.now()
+      };
+
+      return user;
+    });
 
     if (!referrerResult.committed) {
-      const latestReferrerSnap = await referrerRef.once("value");
-      const latestReferrer = latestReferrerSnap.val() || {};
+      const latestSnap = await referrerRef.once("value");
+      const latest = latestSnap.val() || {};
 
-      if (
-        !latestReferrer.referrals ||
-        !latestReferrer.referrals[newId]
-      ) {
+      if (!latest.referrals || !latest.referrals[newId]) {
         return {
           success: false,
           reason: "Could not apply referral reward"
@@ -524,8 +417,7 @@ async function processReferral(
 
     await newUserRef.update({
       referredBy: referrerId,
-      referredAt:
-        Number(claim.createdAt) || Date.now()
+      referredAt: Number(claim.createdAt) || Date.now()
     });
 
     await claimRef.update({
@@ -537,34 +429,17 @@ async function processReferral(
       `Referral completed: referrer=${referrerId}, newUser=${newId}, reward=${reward}`
     );
 
-    return {
-      success: true,
-      reward
-    };
-
+    return { success: true, reward };
   } catch (error) {
-    console.error(
-      "Referral processing error:",
-      error.message
-    );
-
-    return {
-      success: false,
-      reason: error.message
-    };
+    console.error("Referral processing error:", error.message);
+    return { success: false, reason: error.message };
   }
 }
 
-/* Merge settings */
+/* Settings */
 
 function mergeSettings(saved = {}) {
   const savedAds = saved.ads || {};
-
-  const legacyWidgetId =
-    String(
-      savedAds.adexiumWidgetId ||
-      ADEXIUM_VIDEO_WID
-    );
 
   return {
     ...DEFAULT_SETTINGS,
@@ -586,50 +461,18 @@ function mergeSettings(saved = {}) {
     },
 
     ads: {
-      adexiumEnabled:
-        savedAds.adexiumEnabled !== false,
-
-      autoWidgetId:
-        String(
-          savedAds.autoWidgetId ||
-          ADEXIUM_AUTO_WID
-        ),
-
-      videoWidgetId:
-        String(
-          savedAds.videoWidgetId ||
-          legacyWidgetId
-        ),
-
-      rewardWidgetId:
-        String(
-          savedAds.rewardWidgetId ||
-          ADEXIUM_REWARD_WID
-        ),
-
-      // Old frontend compatibility
-      adexiumWidgetId:
-        String(
-          savedAds.videoWidgetId ||
-          legacyWidgetId
-        ),
-
+      network: "monetag",
+      monetagZoneId: MONETAG_ZONE_ID,
+      automaticAdsEnabled:
+        savedAds.automaticAdsEnabled !== false,
       autoFirstAdSeconds: Math.max(
         5,
-        Math.min(
-          3600,
-          Number(savedAds.autoFirstAdSeconds) || 30
-        )
+        Math.min(3600, Number(savedAds.autoFirstAdSeconds) || 30)
       ),
-
       autoIntervalSeconds: Math.max(
         10,
-        Math.min(
-          3600,
-          Number(savedAds.autoIntervalSeconds) || 90
-        )
+        Math.min(3600, Number(savedAds.autoIntervalSeconds) || 90)
       ),
-
       adsPerVideo: Math.max(
         1,
         Math.min(
@@ -647,72 +490,13 @@ function mergeSettings(saved = {}) {
   };
 }
 
-/* Adexium task verification helper */
-
-async function verifyAdexiumTask(widgetId, taskId) {
-  const verifyUrl =
-    "https://bid.tgads.live/task/check/" +
-    encodeURIComponent(widgetId) + "/" +
-    encodeURIComponent(taskId);
-
-  let lastError = null;
-
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const response = await fetch(verifyUrl, {
-        method: "GET",
-        headers: {
-          Accept: "application/json"
-        },
-        signal: AbortSignal.timeout(12000)
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `Adexium HTTP ${response.status}`
-        );
-      }
-
-      const result = await response.json();
-
-      if (result.done === true) {
-        return {
-          verified: true,
-          result
-        };
-      }
-
-      return {
-        verified: false,
-        result
-      };
-
-    } catch (error) {
-      lastError = error;
-
-      if (attempt < 3) {
-        await new Promise(resolve =>
-          setTimeout(resolve, 1000)
-        );
-      }
-    }
-  }
-
-  throw lastError || new Error(
-    "Adexium verification failed"
-  );
-}
-
-/* Adexium Reward progress */
+/* Monetag reward progress */
 
 function getRewardProgress(userData = {}) {
-  const progress = userData.adexiumRewardProgress || {};
+  const progress = userData.monetagRewardProgress || {};
 
   return {
-    completed: Math.max(
-      0,
-      Number(progress.completed) || 0
-    ),
+    completed: Math.max(0, Number(progress.completed) || 0),
     events: progress.events || {}
   };
 }
@@ -727,7 +511,6 @@ function getRewardStatus(settings, userData = {}) {
   );
 
   const enabled = reward.enabled === true;
-
   const unlocked =
     enabled &&
     !!reward.unlockUrl &&
@@ -740,13 +523,24 @@ function getRewardStatus(settings, userData = {}) {
     required,
     unlocked,
     unlockMessage: reward.unlockMessage || "",
-    ...(unlocked
-      ? { unlockUrl: reward.unlockUrl }
-      : {})
+    ...(unlocked ? { unlockUrl: reward.unlockUrl } : {})
   };
 }
 
-/* Health check */
+function validYmid(value) {
+  return (
+    typeof value === "string" &&
+    value.length >= 8 &&
+    value.length <= 150 &&
+    /^[a-zA-Z0-9_-]+$/.test(value)
+  );
+}
+
+function hashYmid(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+/* Health */
 
 app.get("/health", (req, res) => {
   res.json({
@@ -758,35 +552,20 @@ app.get("/health", (req, res) => {
 
 /* Public settings */
 
-app.get(
-  "/api/settings",
-  requireFirebase,
-  async (req, res) => {
-    try {
-      const snapshot = await db
-        .ref("settings")
-        .once("value");
+app.get("/api/settings", requireFirebase, async (req, res) => {
+  try {
+    const snapshot = await db.ref("settings").once("value");
+    const settings = mergeSettings(snapshot.val() || {});
 
-      const settings = mergeSettings(
-        snapshot.val() || {}
-      );
+    settings.reward.unlockUrl = "";
 
-      settings.reward.unlockUrl = "";
-
-      res.json({
-        success: true,
-        settings
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
+    res.json({ success: true, settings });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
-);
+});
 
-/* Private admin settings */
+/* Admin settings */
 
 app.get(
   "/api/admin/settings",
@@ -794,117 +573,88 @@ app.get(
   requireAdmin,
   async (req, res) => {
     try {
-      const snapshot = await db
-        .ref("settings")
-        .once("value");
+      const snapshot = await db.ref("settings").once("value");
 
       res.json({
         success: true,
-        settings: mergeSettings(
-          snapshot.val() || {}
-        )
+        settings: mergeSettings(snapshot.val() || {})
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 );
 
-/* Public video listing */
+/* Public videos */
 
-app.get(
-  "/api/videos",
-  requireFirebase,
-  async (req, res) => {
-    try {
-      const page = Math.max(
-        1,
-        Number(req.query.page) || 1
-      );
+app.get("/api/videos", requireFirebase, async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const category = String(req.query.category || "all");
 
-      const category = String(
-        req.query.category || "all"
-      );
+    const snapshot = await db
+      .ref("videos")
+      .orderByChild("createdAt")
+      .once("value");
 
-      const snapshot = await db
-        .ref("videos")
-        .orderByChild("createdAt")
-        .once("value");
+    let videos = [];
 
-      let videos = [];
+    snapshot.forEach(child => {
+      const video = child.val();
 
-      snapshot.forEach(child => {
-        const video = child.val();
+      if (video && video.enabled !== false) {
+        const { videoUrl, ...publicVideo } = video;
 
-        if (video && video.enabled !== false) {
-          const {
-            videoUrl,
-            ...publicVideo
-          } = video;
-
-          videos.push({
-            id: child.key,
-            ...publicVideo
-          });
-        }
-      });
-
-      videos.reverse();
-
-      if (category !== "all") {
-        videos = videos.filter(
-          video => video.categoryId === category
-        );
+        videos.push({
+          id: child.key,
+          ...publicVideo
+        });
       }
+    });
 
-      const settingsSnap = await db
-        .ref("settings/pagination/videosPerPage")
-        .once("value");
+    videos.reverse();
 
-      const perPage = Math.max(
-        1,
-        Math.min(
-          50,
-          Number(settingsSnap.val()) ||
-          DEFAULT_SETTINGS.pagination.videosPerPage
-        )
+    if (category !== "all") {
+      videos = videos.filter(
+        video => video.categoryId === category
       );
-
-      const total = videos.length;
-
-      const totalPages = Math.max(
-        1,
-        Math.ceil(total / perPage)
-      );
-
-      const start = (page - 1) * perPage;
-
-      res.json({
-        success: true,
-        videos: videos.slice(start, start + perPage),
-
-        pagination: {
-          page,
-          perPage,
-          total,
-          totalPages,
-          hasNext: page < totalPages,
-          hasPrevious: page > 1
-        }
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
     }
-  }
-);
 
-/* Start a new video Ad Unlock session */
+    const settingsSnap = await db
+      .ref("settings/pagination/videosPerPage")
+      .once("value");
+
+    const perPage = Math.max(
+      1,
+      Math.min(
+        50,
+        Number(settingsSnap.val()) ||
+        DEFAULT_SETTINGS.pagination.videosPerPage
+      )
+    );
+
+    const total = videos.length;
+    const totalPages = Math.max(1, Math.ceil(total / perPage));
+    const start = (page - 1) * perPage;
+
+    res.json({
+      success: true,
+      videos: videos.slice(start, start + perPage),
+      pagination: {
+        page,
+        perPage,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrevious: page > 1
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/* Start video ad session */
 
 app.post(
   "/api/video/ad/start",
@@ -913,10 +663,7 @@ app.post(
   async (req, res) => {
     try {
       const user = req.telegramUser;
-
-      const videoId = String(
-        req.body?.videoId || ""
-      ).trim();
+      const videoId = String(req.body?.videoId || "").trim();
 
       if (
         !videoId ||
@@ -931,11 +678,10 @@ app.post(
 
       await saveTelegramUser(user);
 
-      const [videoSnap, settingsSnap] =
-        await Promise.all([
-          db.ref(`videos/${videoId}`).once("value"),
-          db.ref("settings").once("value")
-        ]);
+      const [videoSnap, settingsSnap] = await Promise.all([
+        db.ref(`videos/${videoId}`).once("value"),
+        db.ref("settings").once("value")
+      ]);
 
       if (
         !videoSnap.exists() ||
@@ -947,85 +693,55 @@ app.post(
         });
       }
 
-      const settings = mergeSettings(
-        settingsSnap.val() || {}
-      );
-
-      if (settings.ads.adexiumEnabled === false) {
-        return res.status(403).json({
-          success: false,
-          error: "Adexium ads are disabled"
-        });
-      }
-
-      // Video unlock uses Widget ID 3
-      const widgetId =
-        settings.ads.videoWidgetId;
-
-      if (!widgetId || widgetId.length > 150) {
-        return res.status(500).json({
-          success: false,
-          error: "Video Adexium Widget ID is invalid"
-        });
-      }
-
+      const settings = mergeSettings(settingsSnap.val() || {});
       const video = videoSnap.val();
 
       const required = Math.max(
         1,
         Math.min(
           100,
-          Number(video.adsRequired) ||
-          settings.ads.adsPerVideo
+          Number(video.adsRequired) || settings.ads.adsPerVideo
         )
       );
 
-      const attemptId =
-        crypto.randomBytes(24).toString("hex");
-
+      const attemptId = crypto.randomBytes(24).toString("hex");
       const now = Date.now();
 
       await db
-        .ref(
-          `videoAdUnlockAttempts/${user.id}/${attemptId}`
-        )
+        .ref(`videoAdUnlockAttempts/${user.id}/${attemptId}`)
         .set({
           userId: String(user.id),
           videoId,
-          widgetId,
+          network: "monetag",
           required,
           completed: 0,
-          taskHashes: {},
+          ymids: {},
           status: "active",
           createdAt: now,
           expiresAt: now + 30 * 60 * 1000
         });
 
-      return res.json({
+      res.json({
         success: true,
         attemptId,
         videoId,
-        widgetId,
+        zoneId: MONETAG_ZONE_ID,
         required,
         completed: 0,
-        message: "Ad unlock session started"
+        message: "Video ad session started"
       });
-
     } catch (error) {
-      console.error(
-        "Video ad start error:",
-        error.message
-      );
+      console.error("Video ad start error:", error.message);
 
-      return res.status(500).json({
+      res.status(500).json({
         success: false,
-        error: "Could not start video ad unlock"
+        error: "Could not start video ad session"
       });
     }
   }
 );
 
-/* Verify one video Ad task */
+/* Count one completed video ad */
 
 app.post(
   "/api/video/ad/verify",
@@ -1034,47 +750,28 @@ app.post(
   async (req, res) => {
     try {
       const user = req.telegramUser;
+      const videoId = String(req.body?.videoId || "").trim();
+      const attemptId = String(req.body?.attemptId || "").trim();
+      const ymid = String(req.body?.ymid || "").trim();
 
-      const videoId = String(
-        req.body?.videoId || ""
-      ).trim();
-
-      const attemptId = String(
-        req.body?.attemptId || ""
-      ).trim();
-
-      const taskId = String(
-        req.body?.taskId || ""
-      ).trim();
-
-      if (
-        !videoId ||
-        !/^[a-zA-Z0-9_-]{1,150}$/.test(videoId)
-      ) {
+      if (!/^[a-zA-Z0-9_-]{1,150}$/.test(videoId)) {
         return res.status(400).json({
           success: false,
           error: "Invalid video ID"
         });
       }
 
-      if (
-        !attemptId ||
-        !/^[a-f0-9]{48}$/.test(attemptId)
-      ) {
+      if (!/^[a-f0-9]{48}$/.test(attemptId)) {
         return res.status(400).json({
           success: false,
           error: "Invalid unlock session"
         });
       }
 
-      if (
-        !taskId ||
-        taskId.length > 250 ||
-        !/^[a-zA-Z0-9_-]+$/.test(taskId)
-      ) {
+      if (!validYmid(ymid)) {
         return res.status(400).json({
           success: false,
-          error: "Invalid Adexium task ID"
+          error: "Invalid ad reference"
         });
       }
 
@@ -1084,12 +781,10 @@ app.post(
         `videoAdUnlockAttempts/${user.id}/${attemptId}`
       );
 
-      const [attemptSnap, videoSnap, settingsSnap] =
-        await Promise.all([
-          attemptRef.once("value"),
-          db.ref(`videos/${videoId}`).once("value"),
-          db.ref("settings").once("value")
-        ]);
+      const [attemptSnap, videoSnap] = await Promise.all([
+        attemptRef.once("value"),
+        db.ref(`videos/${videoId}`).once("value")
+      ]);
 
       if (!attemptSnap.exists()) {
         return res.status(404).json({
@@ -1098,39 +793,6 @@ app.post(
         });
       }
 
-      const attempt = attemptSnap.val();
-
-      if (
-        String(attempt.userId) !== String(user.id) ||
-        String(attempt.videoId) !== videoId
-      ) {
-        return res.status(403).json({
-          success: false,
-          error: "Unlock session mismatch"
-        });
-      }
-
-      if (attempt.status !== "active") {
-        return res.status(409).json({
-          success: false,
-          error: "This unlock session is no longer active"
-        });
-      }
-
-      if (
-        Number(attempt.expiresAt) < Date.now()
-      ) {
-        await attemptRef.update({
-          status: "expired",
-          expiredAt: Date.now()
-        });
-
-        return res.status(410).json({
-          success: false,
-          error: "Unlock session expired. Start again."
-        });
-      }
-
       if (
         !videoSnap.exists() ||
         videoSnap.val()?.enabled === false
@@ -1150,368 +812,128 @@ app.post(
         });
       }
 
-      const settings = mergeSettings(
-        settingsSnap.val() || {}
-      );
+      const ymidHash = hashYmid(ymid);
+      const claimRef = db.ref(`monetagVideoClaims/${ymidHash}`);
 
-      if (settings.ads.adexiumEnabled === false) {
-        return res.status(403).json({
-          success: false,
-          error: "Adexium ads are disabled"
-        });
-      }
+      const claimResult = await claimRef.transaction(current => {
+        if (current) return;
 
-      // Use the Widget ID saved in this unlock attempt.
-      // This prevents a settings change from changing
-      // the verification widget midway through an attempt.
-      const widgetId =
-        attempt.widgetId ||
-        settings.ads.videoWidgetId;
-
-      if (!widgetId) {
-        return res.status(500).json({
-          success: false,
-          error: "Video Adexium Widget ID is missing"
-        });
-      }
-
-      const verification = await verifyAdexiumTask(
-        widgetId,
-        taskId
-      );
-
-      if (!verification.verified) {
-        return res.status(403).json({
-          success: false,
-          verified: false,
-          error: "Adexium has not confirmed this ad task"
-        });
-      }
-
-      const taskHash = crypto
-        .createHash("sha256")
-        .update(taskId)
-        .digest("hex");
-
-      const globalClaimRef = db.ref(
-        `adexiumVideoTaskClaims/${taskHash}`
-      );
-
-      const globalClaimResult =
-        await globalClaimRef.transaction(current => {
-          if (current) return;
-
-          return {
-            userId: String(user.id),
-            videoId,
-            attemptId,
-            widgetId,
-            status: "claimed",
-            createdAt: Date.now()
-          };
-        });
-
-      if (!globalClaimResult.committed) {
-        return res.status(409).json({
-          success: false,
-          error: "This ad task has already been used"
-        });
-      }
-
-      let finalCompleted = 0;
-      let sessionUnlocked = false;
-
-      const progressResult =
-        await attemptRef.transaction(current => {
-          if (!current) return;
-
-          if (
-            current.status !== "active" ||
-            String(current.userId) !== String(user.id) ||
-            String(current.videoId) !== videoId ||
-            Number(current.expiresAt) < Date.now()
-          ) {
-            return;
-          }
-
-          current.taskHashes =
-            current.taskHashes || {};
-
-          if (current.taskHashes[taskHash]) {
-            return;
-          }
-
-          current.taskHashes[taskHash] = true;
-
-          current.completed =
-            (Number(current.completed) || 0) + 1;
-
-          current.updatedAt = Date.now();
-
-          if (
-            current.completed >=
-            Number(current.required)
-          ) {
-            current.completed =
-              Number(current.required);
-
-            current.status = "completed";
-            current.completedAt = Date.now();
-          }
-
-          return current;
-        });
-
-      const updatedAttempt =
-        progressResult.snapshot.val();
-
-      if (!progressResult.committed || !updatedAttempt) {
-        await globalClaimRef.update({
-          status: "rejected",
-          rejectedAt: Date.now()
-        });
-
-        return res.status(409).json({
-          success: false,
-          error: "Could not update this unlock session"
-        });
-      }
-
-      finalCompleted =
-        Number(updatedAttempt.completed) || 0;
-
-      sessionUnlocked =
-        updatedAttempt.status === "completed";
-
-      await globalClaimRef.update({
-        status: "credited",
-        creditedAt: Date.now()
+        return {
+          userId: String(user.id),
+          videoId,
+          attemptId,
+          createdAt: Date.now()
+        };
       });
 
-      console.log(
-        `Video ad verified: user=${user.id}, video=${videoId}, completed=${finalCompleted}/${updatedAttempt.required}`
-      );
+      if (!claimResult.committed) {
+        return res.status(409).json({
+          success: false,
+          error: "This ad reference has already been used"
+        });
+      }
 
-      if (sessionUnlocked) {
-        await db
-          .ref(`users/${user.id}/videoUnlocks/${videoId}`)
-          .transaction(value =>
-            (Number(value) || 0) + 1
-          );
+      const progressResult = await attemptRef.transaction(current => {
+        if (!current) return;
 
-        await db
-          .ref(`users/${user.id}`)
-          .update({
-            lastVideoUnlockAt: Date.now()
-          });
+        if (
+          String(current.userId) !== String(user.id) ||
+          String(current.videoId) !== videoId ||
+          current.status !== "active" ||
+          Number(current.expiresAt) < Date.now()
+        ) {
+          return;
+        }
+
+        current.ymids = current.ymids || {};
+
+        if (current.ymids[ymidHash]) {
+          return current;
+        }
+
+        current.ymids[ymidHash] = true;
+        current.completed = (Number(current.completed) || 0) + 1;
+
+        if (current.completed >= Number(current.required)) {
+          current.completed = Number(current.required);
+          current.status = "completed";
+          current.completedAt = Date.now();
+        }
+
+        current.updatedAt = Date.now();
+        return current;
+      });
+
+      const updated = progressResult.snapshot.val();
+
+      if (!progressResult.committed || !updated) {
+        await claimRef.remove();
+
+        return res.status(409).json({
+          success: false,
+          error: "Could not update this ad session"
+        });
+      }
+
+      await claimRef.update({ creditedAt: Date.now() });
+
+      const completed = Number(updated.completed) || 0;
+      const required = Number(updated.required) || 1;
+      const unlocked = updated.status === "completed";
+
+      if (unlocked) {
+        await db.ref(`users/${user.id}`).update({
+          lastVideoUnlockAt: Date.now()
+        });
 
         return res.json({
           success: true,
           verified: true,
           unlocked: true,
           videoId,
-          completed: finalCompleted,
-          required: Number(updatedAttempt.required),
+          completed,
+          required,
           videoUrl: video.videoUrl,
           message: "Video unlocked successfully"
         });
       }
 
-      return res.json({
+      res.json({
         success: true,
         verified: true,
         unlocked: false,
         videoId,
-        completed: finalCompleted,
-        required: Number(updatedAttempt.required),
-        remaining: Math.max(
-          0,
-          Number(updatedAttempt.required) - finalCompleted
-        ),
-        message: "Ad successfully verified"
+        completed,
+        required,
+        remaining: Math.max(0, required - completed),
+        message: "Ad counted"
       });
-
     } catch (error) {
-      console.error(
-        "Video ad verification error:",
-        error.message
-      );
+      console.error("Video ad count error:", error.message);
 
-      return res.status(500).json({
+      res.status(500).json({
         success: false,
-        error: "Could not verify video ad"
+        error: "Could not count video ad"
       });
     }
   }
 );
 
-/* Video unlock using referral credits */
+/* Credit unlock disabled */
 
 app.post(
   "/api/video/unlock",
   requireFirebase,
   requireTelegramUser,
-  async (req, res) => {
-    try {
-      const user = req.telegramUser;
-
-      const videoId = String(
-        req.body?.videoId || ""
-      ).trim();
-
-      const requestId = String(
-        req.body?.requestId || ""
-      ).trim();
-
-      if (
-        !videoId ||
-        videoId.length > 150 ||
-        !/^[a-zA-Z0-9_-]+$/.test(videoId)
-      ) {
-        return res.status(400).json({
-          success: false,
-          error: "Invalid video ID"
-        });
-      }
-
-      if (
-        !requestId ||
-        requestId.length > 100 ||
-        !/^[a-zA-Z0-9_-]+$/.test(requestId)
-      ) {
-        return res.status(400).json({
-          success: false,
-          error: "Invalid request ID"
-        });
-      }
-
-      await saveTelegramUser(user);
-
-      const videoRef = db.ref(`videos/${videoId}`);
-      const videoSnap = await videoRef.once("value");
-
-      if (
-        !videoSnap.exists() ||
-        videoSnap.val()?.enabled === false
-      ) {
-        return res.status(404).json({
-          success: false,
-          error: "Video not found"
-        });
-      }
-
-      const video = videoSnap.val();
-
-      if (!video.videoUrl) {
-        return res.status(404).json({
-          success: false,
-          error: "Video URL not available"
-        });
-      }
-
-      const requestHash = crypto
-        .createHash("sha256")
-        .update(String(user.id) + ":" + requestId)
-        .digest("hex");
-
-      const claimRef = db.ref(
-        `videoUnlockClaims/${requestHash}`
-      );
-
-      const claimResult = await claimRef.transaction(
-        current => {
-          if (current) return;
-
-          return {
-            userId: String(user.id),
-            videoId,
-            status: "processing",
-            createdAt: Date.now()
-          };
-        }
-      );
-
-      if (!claimResult.committed) {
-        return res.status(409).json({
-          success: false,
-          error: "This unlock request was already used"
-        });
-      }
-
-      const userRef = db.ref(`users/${user.id}`);
-
-      const chargeResult = await userRef.transaction(
-        current => {
-          if (!current) return;
-
-          const credits = Number(current.credits) || 0;
-
-          if (credits < 1) return;
-
-          current.credits = credits - 1;
-
-          current.videoUnlocks =
-            current.videoUnlocks || {};
-
-          current.videoUnlocks[videoId] =
-            (Number(current.videoUnlocks[videoId]) || 0) + 1;
-
-          current.lastVideoUnlockAt = Date.now();
-
-          return current;
-        }
-      );
-
-      if (!chargeResult.committed) {
-        await claimRef.update({
-          status: "failed",
-          reason: "Insufficient credits",
-          completedAt: Date.now()
-        });
-
-        return res.status(403).json({
-          success: false,
-          error: "Not enough credits",
-          credits: Number(
-            chargeResult.snapshot.val()?.credits
-          ) || 0
-        });
-      }
-
-      await claimRef.update({
-        status: "completed",
-        completedAt: Date.now()
-      });
-
-      const updatedUser = chargeResult.snapshot.val() || {};
-
-      console.log(
-        `Video unlocked by credit: user=${user.id}, video=${videoId}, credits=${updatedUser.credits}`
-      );
-
-      return res.json({
-        success: true,
-        message: "Video unlocked successfully",
-        videoId,
-        videoUrl: video.videoUrl,
-        credits: Number(updatedUser.credits) || 0
-      });
-
-    } catch (error) {
-      console.error(
-        "Video unlock error:",
-        error.message
-      );
-
-      return res.status(500).json({
-        success: false,
-        error: "Could not unlock video"
-      });
-    }
+  (req, res) => {
+    res.status(403).json({
+      success: false,
+      error: "Credit unlock is disabled. Watch ads to unlock videos."
+    });
   }
 );
 
-/* Verify Mini App user */
+/* Current user */
 
 app.get(
   "/api/me",
@@ -1531,25 +953,20 @@ app.get(
 
       res.json({
         success: true,
-
         user: {
           ...data,
           id: String(user.id),
           credits: Number(data.credits) || 0,
-          totalReferrals:
-            Number(data.totalReferrals) || 0
+          totalReferrals: Number(data.totalReferrals) || 0
         }
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 );
 
-/* Get reward status */
+/* Reward status */
 
 app.get(
   "/api/reward/status",
@@ -1558,7 +975,6 @@ app.get(
   async (req, res) => {
     try {
       const user = req.telegramUser;
-
       await saveTelegramUser(user);
 
       const [settingsSnap, userSnap] = await Promise.all([
@@ -1566,25 +982,17 @@ app.get(
         db.ref(`users/${user.id}`).once("value")
       ]);
 
-      const settings = mergeSettings(
-        settingsSnap.val() || {}
-      );
-
+      const settings = mergeSettings(settingsSnap.val() || {});
       const userData = userSnap.val() || {};
 
-      res.json(
-        getRewardStatus(settings, userData)
-      );
+      res.json(getRewardStatus(settings, userData));
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 );
 
-/* Verify Adexium task and credit separate 50 Ads reward */
+/* Count one completed Special Reward ad */
 
 app.post(
   "/api/reward/verify",
@@ -1593,16 +1001,12 @@ app.post(
   async (req, res) => {
     try {
       const user = req.telegramUser;
-      const taskId = String(req.body.taskId || "").trim();
+      const ymid = String(req.body?.ymid || "").trim();
 
-      if (
-        !taskId ||
-        taskId.length > 250 ||
-        !/^[a-zA-Z0-9_-]+$/.test(taskId)
-      ) {
+      if (!validYmid(ymid)) {
         return res.status(400).json({
           success: false,
-          error: "Invalid Adexium task ID"
+          error: "Invalid ad reference"
         });
       }
 
@@ -1613,11 +1017,7 @@ app.post(
         db.ref(`users/${user.id}`).once("value")
       ]);
 
-      const settings = mergeSettings(
-        settingsSnap.val() || {}
-      );
-
-      const userData = userSnap.val() || {};
+      const settings = mergeSettings(settingsSnap.val() || {});
       const reward = settings.reward;
 
       if (!reward.enabled) {
@@ -1634,56 +1034,18 @@ app.post(
         });
       }
 
-      if (settings.ads.adexiumEnabled === false) {
-        return res.status(403).json({
-          success: false,
-          error: "Adexium ads are disabled"
-        });
-      }
+      const ymidHash = hashYmid(ymid);
+      const claimRef = db.ref(`monetagRewardClaims/${ymidHash}`);
 
-      // 50 Ads Reward uses Widget ID 1
-      const wid = settings.ads.rewardWidgetId;
+      const claimResult = await claimRef.transaction(current => {
+        if (current) return;
 
-      if (!wid || wid.length > 150) {
-        return res.status(500).json({
-          success: false,
-          error: "Reward Adexium Widget ID is invalid"
-        });
-      }
-
-      const verification = await verifyAdexiumTask(
-        wid,
-        taskId
-      );
-
-      if (!verification.verified) {
-        return res.status(403).json({
-          success: false,
-          error: "Adexium has not confirmed this ad task"
-        });
-      }
-
-      const taskHash = crypto
-        .createHash("sha256")
-        .update(taskId)
-        .digest("hex");
-
-      const claimRef = db.ref(
-        `adexiumTaskClaims/${taskHash}`
-      );
-
-      const claimResult = await claimRef.transaction(
-        current => {
-          if (current) return;
-
-          return {
-            userId: String(user.id),
-            widgetId: wid,
-            createdAt: Date.now(),
-            status: "claimed"
-          };
-        }
-      );
+        return {
+          userId: String(user.id),
+          createdAt: Date.now(),
+          status: "claimed"
+        };
+      });
 
       const claim = claimResult.snapshot.val();
 
@@ -1694,38 +1056,36 @@ app.post(
       ) {
         return res.status(409).json({
           success: false,
-          error: "This ad task has already been claimed"
+          error: "This ad reference has already been used"
         });
       }
 
       const progressRef = db.ref(
-        `users/${user.id}/adexiumRewardProgress`
+        `users/${user.id}/monetagRewardProgress`
       );
 
-      const progressResult = await progressRef.transaction(
-        current => {
-          current = current || {};
+      const progressResult = await progressRef.transaction(current => {
+        current = current || {};
+        current.completed = Math.max(
+          0,
+          Number(current.completed) || 0
+        );
+        current.events = current.events || {};
 
-          current.completed = Math.max(
-            0,
-            Number(current.completed) || 0
-          );
-
-          current.events = current.events || {};
-
-          if (current.events[taskHash]) {
-            return current;
-          }
-
-          current.events[taskHash] = true;
-          current.completed += 1;
-          current.updatedAt = Date.now();
-
+        if (current.events[ymidHash]) {
           return current;
         }
-      );
+
+        current.events[ymidHash] = true;
+        current.completed += 1;
+        current.updatedAt = Date.now();
+
+        return current;
+      });
 
       if (!progressResult.committed) {
+        await claimRef.remove();
+
         return res.status(500).json({
           success: false,
           error: "Could not update reward progress"
@@ -1741,34 +1101,28 @@ app.post(
         .ref(`users/${user.id}`)
         .once("value");
 
-      const latestUser = latestUserSnap.val() || {};
-
       const status = getRewardStatus(
         settings,
-        latestUser
+        latestUserSnap.val() || {}
       );
 
       console.log(
-        `Adexium reward credited: user=${user.id}, completed=${status.completed}`
+        `Monetag reward counted: user=${user.id}, completed=${status.completed}`
       );
 
-      return res.json({
+      res.json({
         ...status,
         verified: true,
         message: status.unlocked
           ? "Reward unlocked"
-          : "Ad successfully verified"
+          : "Ad counted"
       });
-
     } catch (error) {
-      console.error(
-        "Adexium reward verification error:",
-        error.message
-      );
+      console.error("Reward count error:", error.message);
 
       res.status(500).json({
         success: false,
-        error: "Could not verify Adexium reward"
+        error: "Could not count reward ad"
       });
     }
   }
@@ -1792,12 +1146,8 @@ app.get(
 
       users.forEach(child => {
         const user = child.val() || {};
-
-        totalReferrals +=
-          Number(user.totalReferrals) || 0;
-
-        totalCredits +=
-          Number(user.credits) || 0;
+        totalReferrals += Number(user.totalReferrals) || 0;
+        totalCredits += Number(user.credits) || 0;
       });
 
       res.json({
@@ -1808,10 +1158,7 @@ app.get(
         totalCredits
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 );
@@ -1846,13 +1193,10 @@ app.put(
       }
 
       if (updates.reward) {
-        const currentSnap = await db
-          .ref("settings/reward")
-          .once("value");
-
+        const snap = await db.ref("settings/reward").once("value");
         const current = {
           ...DEFAULT_SETTINGS.reward,
-          ...(currentSnap.val() || {})
+          ...(snap.val() || {})
         };
 
         const incoming = updates.reward;
@@ -1903,7 +1247,7 @@ app.put(
           } catch {
             return res.status(400).json({
               success: false,
-              error: "Unlock URL must be a valid HTTP or HTTPS URL"
+              error: "Reward URL must be a valid HTTP or HTTPS URL"
             });
           }
         }
@@ -1922,13 +1266,10 @@ app.put(
       }
 
       if (updates.referral) {
-        const currentSnap = await db
-          .ref("settings/referral")
-          .once("value");
-
+        const snap = await db.ref("settings/referral").once("value");
         const current = {
           ...DEFAULT_SETTINGS.referral,
-          ...(currentSnap.val() || {})
+          ...(snap.val() || {})
         };
 
         const incoming = updates.referral;
@@ -1960,8 +1301,7 @@ app.put(
         ) {
           return res.status(400).json({
             success: false,
-            error:
-              "Referral reward must be between 0 and 1000000"
+            error: "Referral reward must be between 0 and 1000000"
           });
         }
 
@@ -1991,66 +1331,28 @@ app.put(
       }
 
       if (updates.ads) {
-        const currentSnap = await db
-          .ref("settings/ads")
-          .once("value");
-
+        const snap = await db.ref("settings/ads").once("value");
         const current = {
           ...DEFAULT_SETTINGS.ads,
-          ...(currentSnap.val() || {})
+          ...(snap.val() || {})
         };
 
         const incoming = updates.ads;
 
-        // Legacy Admin Panel compatibility:
-        // adexiumWidgetId is treated as videoWidgetId.
-        const autoWidgetId = String(
-          incoming.autoWidgetId !== undefined
-            ? incoming.autoWidgetId
-            : current.autoWidgetId || ADEXIUM_AUTO_WID
-        ).trim();
-
-        const videoWidgetId = String(
-          incoming.videoWidgetId !== undefined
-            ? incoming.videoWidgetId
-            : incoming.adexiumWidgetId !== undefined
-              ? incoming.adexiumWidgetId
-              : current.videoWidgetId ||
-                current.adexiumWidgetId ||
-                ADEXIUM_VIDEO_WID
-        ).trim();
-
-        const rewardWidgetId = String(
-          incoming.rewardWidgetId !== undefined
-            ? incoming.rewardWidgetId
-            : current.rewardWidgetId || ADEXIUM_REWARD_WID
-        ).trim();
-
-        const widgetIds = [
-          autoWidgetId,
-          videoWidgetId,
-          rewardWidgetId
-        ];
-
-        if (
-          widgetIds.some(
-            id =>
-              !id ||
-              id.length > 150 ||
-              !/^[a-zA-Z0-9_-]+$/.test(id)
-          )
-        ) {
-          return res.status(400).json({
-            success: false,
-            error: "One or more Adexium Widget IDs are invalid"
-          });
-        }
-
         const adsPerVideo =
           incoming.adsPerVideo !== undefined
             ? Number(incoming.adsPerVideo)
-            : Number(current.adsPerVideo) ||
-              DEFAULT_SETTINGS.ads.adsPerVideo;
+            : Number(current.adsPerVideo) || 2;
+
+        const autoFirstAdSeconds =
+          incoming.autoFirstAdSeconds !== undefined
+            ? Number(incoming.autoFirstAdSeconds)
+            : Number(current.autoFirstAdSeconds) || 30;
+
+        const autoIntervalSeconds =
+          incoming.autoIntervalSeconds !== undefined
+            ? Number(incoming.autoIntervalSeconds)
+            : Number(current.autoIntervalSeconds) || 90;
 
         if (
           !Number.isInteger(adsPerVideo) ||
@@ -2062,16 +1364,6 @@ app.put(
             error: "Ads per video must be between 1 and 100"
           });
         }
-
-        const autoFirstAdSeconds =
-          incoming.autoFirstAdSeconds !== undefined
-            ? Number(incoming.autoFirstAdSeconds)
-            : Number(current.autoFirstAdSeconds) || 30;
-
-        const autoIntervalSeconds =
-          incoming.autoIntervalSeconds !== undefined
-            ? Number(incoming.autoIntervalSeconds)
-            : Number(current.autoIntervalSeconds) || 90;
 
         if (
           !Number.isInteger(autoFirstAdSeconds) ||
@@ -2096,19 +1388,13 @@ app.put(
         }
 
         updates.ads = {
-          adexiumEnabled:
-            incoming.adexiumEnabled !== undefined
-              ? incoming.adexiumEnabled === true ||
-                incoming.adexiumEnabled === "true"
-              : current.adexiumEnabled !== false,
-
-          autoWidgetId,
-          videoWidgetId,
-          rewardWidgetId,
-
-          // Old frontend compatibility
-          adexiumWidgetId: videoWidgetId,
-
+          network: "monetag",
+          monetagZoneId: MONETAG_ZONE_ID,
+          automaticAdsEnabled:
+            incoming.automaticAdsEnabled !== undefined
+              ? incoming.automaticAdsEnabled === true ||
+                incoming.automaticAdsEnabled === "true"
+              : current.automaticAdsEnabled !== false,
           autoFirstAdSeconds,
           autoIntervalSeconds,
           adsPerVideo
@@ -2122,10 +1408,7 @@ app.put(
         message: "Settings updated"
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 );
@@ -2158,15 +1441,9 @@ app.get(
 
       videos.reverse();
 
-      res.json({
-        success: true,
-        videos
-      });
+      res.json({ success: true, videos });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 );
@@ -2197,12 +1474,7 @@ async function notifyAllUsers(video) {
       batch.map(async id => {
         try {
           const buttons = deepLink
-            ? [[
-                {
-                  text: "▶️ ভিডিও দেখুন",
-                  url: deepLink
-                }
-              ]]
+            ? [[{ text: "▶️ ভিডিও দেখুন", url: deepLink }]]
             : [];
 
           await telegramRequest("sendMessage", {
@@ -2213,14 +1485,8 @@ async function notifyAllUsers(video) {
               : undefined
           });
         } catch (error) {
-          if (
-            /blocked|chat not found|deactivated/i.test(
-              error.message
-            )
-          ) {
-            await db.ref(`users/${id}`).update({
-              blocked: true
-            });
+          if (/blocked|chat not found|deactivated/i.test(error.message)) {
+            await db.ref(`users/${id}`).update({ blocked: true });
           }
         }
       })
@@ -2250,8 +1516,7 @@ app.post(
       if (!title || !thumbnail || !videoUrl) {
         return res.status(400).json({
           success: false,
-          error:
-            "Title, thumbnail and video URL are required"
+          error: "Title, thumbnail and video URL are required"
         });
       }
 
@@ -2272,18 +1537,11 @@ app.post(
 
       const video = {
         title: String(title).slice(0, 200),
-
-        description:
-          String(description || "").slice(0, 2000),
-
+        description: String(description || "").slice(0, 2000),
         thumbnail: String(thumbnail),
         videoUrl: String(videoUrl),
-
-        categoryId:
-          String(categoryId || "premium"),
-
+        categoryId: String(categoryId || "premium"),
         adsRequired: required,
-
         enabled: true,
         createdAt: Date.now(),
         updatedAt: Date.now()
@@ -2299,10 +1557,7 @@ app.post(
           ...video
         });
       } catch (error) {
-        console.error(
-          "Notification error:",
-          error.message
-        );
+        console.error("Notification error:", error.message);
       }
 
       res.json({
@@ -2312,10 +1567,7 @@ app.post(
         message: "Video added"
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 );
@@ -2348,9 +1600,7 @@ app.put(
         "enabled"
       ];
 
-      const updates = {
-        updatedAt: Date.now()
-      };
+      const updates = { updatedAt: Date.now() };
 
       for (const key of allowed) {
         if (req.body[key] !== undefined) {
@@ -2377,15 +1627,9 @@ app.put(
 
       await ref.update(updates);
 
-      res.json({
-        success: true,
-        message: "Video updated"
-      });
+      res.json({ success: true, message: "Video updated" });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 );
@@ -2400,15 +1644,9 @@ app.delete(
     try {
       await db.ref(`videos/${req.params.id}`).remove();
 
-      res.json({
-        success: true,
-        message: "Video deleted"
-      });
+      res.json({ success: true, message: "Video deleted" });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 );
@@ -2421,22 +1659,16 @@ app.post(
   requireAdmin,
   async (req, res) => {
     try {
-      const message = String(
-        req.body.message || ""
-      ).trim();
+      const message = String(req.body.message || "").trim();
 
       if (!message || message.length > 4000) {
         return res.status(400).json({
           success: false,
-          error:
-            "Message is required (maximum 4000 characters)"
+          error: "Message is required (maximum 4000 characters)"
         });
       }
 
-      const snapshot = await db
-        .ref("users")
-        .once("value");
-
+      const snapshot = await db.ref("users").once("value");
       const users = snapshot.val() || {};
       const ids = Object.keys(users);
 
@@ -2457,143 +1689,116 @@ app.post(
         );
 
         results.forEach(result => {
-          if (result.status === "fulfilled") {
-            sent++;
-          } else {
-            failed++;
-          }
+          if (result.status === "fulfilled") sent++;
+          else failed++;
         });
       }
 
-      res.json({
-        success: true,
-        total: ids.length,
-        sent,
-        failed
-      });
+      res.json({ success: true, total: ids.length, sent, failed });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 );
 
 /* Telegram webhook */
 
-app.post(
-  "/api/telegram/webhook",
-  async (req, res) => {
+app.post("/api/telegram/webhook", async (req, res) => {
+  if (
+    WEBHOOK_SECRET &&
+    req.get("x-telegram-bot-api-secret-token") !== WEBHOOK_SECRET
+  ) {
+    return res.sendStatus(403);
+  }
+
+  res.sendStatus(200);
+
+  try {
+    const message = req.body.message;
+
     if (
-      WEBHOOK_SECRET &&
-      req.get("x-telegram-bot-api-secret-token") !==
-        WEBHOOK_SECRET
+      !message ||
+      !message.from ||
+      !message.chat ||
+      !firebaseReady
     ) {
-      return res.sendStatus(403);
+      return;
     }
 
-    res.sendStatus(200);
+    const text = message.text || "";
 
-    try {
-      const message = req.body.message;
+    if (text.startsWith("/start")) {
+      const payload = text.split(/\s+/)[1] || "";
 
-      if (
-        !message ||
-        !message.from ||
-        !message.chat ||
-        !firebaseReady
-      ) {
-        return;
-      }
+      await saveTelegramUser(message.from, payload);
 
-      const text = message.text || "";
+      const referralResult = await processReferral(
+        message.from.id,
+        payload
+      );
 
-      if (text.startsWith("/start")) {
-        const payload = text.split(/\s+/)[1] || "";
-
-        await saveTelegramUser(
-          message.from,
-          payload
-        );
-
-        const referralResult = await processReferral(
-          message.from.id,
-          payload
-        );
-
-        if (referralResult.success) {
-          await telegramRequest("sendMessage", {
-            chat_id: message.chat.id,
-            text:
-              `🎉 অভিনন্দন!\n\n` +
-              `তোমার Referral থেকে ` +
-              `${referralResult.reward} Credit যোগ হয়েছে।`
-          });
-        } else if (
-          payload.startsWith("ref_") &&
-          referralResult.reason !== "Already rewarded"
-        ) {
-          console.log(
-            `Referral not completed: newUser=${message.from.id}, reason=${referralResult.reason}`
-          );
-        }
-
-        const botUsername =
-          VIDEO_BOT_USERNAME.replace(/^@/, "");
-
-        const referralLink = botUsername
-          ? `https://t.me/${botUsername}?start=ref_${message.from.id}`
-          : "";
-
-        const keyboard = WEB_APP_URL
-          ? {
-              inline_keyboard: [[
-                {
-                  text: "🎬 Open Premium Video",
-                  web_app: { url: WEB_APP_URL }
-                }
-              ]]
-            }
-          : undefined;
-
-        let welcomeText =
-          "স্বাগতম Premium Video-তে! নিচের বাটনে Mini App খুলুন।";
-
-        if (referralLink) {
-          welcomeText +=
-            `\n\n🔗 তোমার Referral Link:\n${referralLink}`;
-        }
-
+      if (referralResult.success) {
         await telegramRequest("sendMessage", {
           chat_id: message.chat.id,
-          text: welcomeText,
-          reply_markup: keyboard
+          text:
+            `🎉 অভিনন্দন!\n\n` +
+            `তোমার Referral থেকে ${referralResult.reward} Credit যোগ হয়েছে।`
         });
+      } else if (
+        payload.startsWith("ref_") &&
+        referralResult.reason !== "Already rewarded"
+      ) {
+        console.log(
+          `Referral not completed: newUser=${message.from.id}, reason=${referralResult.reason}`
+        );
       }
-    } catch (error) {
-      console.error(
-        "Webhook processing error:",
-        error.message
-      );
+
+      const botUsername = VIDEO_BOT_USERNAME.replace(/^@/, "");
+
+      const referralLink = botUsername
+        ? `https://t.me/${botUsername}?start=ref_${message.from.id}`
+        : "";
+
+      const keyboard = WEB_APP_URL
+        ? {
+            inline_keyboard: [[
+              {
+                text: "🎬 Open Premium Video",
+                web_app: { url: WEB_APP_URL }
+              }
+            ]]
+          }
+        : undefined;
+
+      let welcomeText =
+        "স্বাগতম Premium Video-তে! নিচের বাটনে Mini App খুলুন।";
+
+      if (referralLink) {
+        welcomeText += `\n\n🔗 তোমার Referral Link:\n${referralLink}`;
+      }
+
+      await telegramRequest("sendMessage", {
+        chat_id: message.chat.id,
+        text: welcomeText,
+        reply_markup: keyboard
+      });
     }
+  } catch (error) {
+    console.error("Webhook processing error:", error.message);
   }
-);
+});
 
 /* Setup Telegram webhook */
 
 async function setupWebhook() {
   if (!BOT_TOKEN || !PUBLIC_URL || !WEBHOOK_SECRET) {
-    console.log(
-      "Webhook setup skipped: environment variables missing"
-    );
+    console.log("Webhook setup skipped: environment variables missing");
     return;
   }
 
   try {
     const url =
-      `${PUBLIC_URL.replace(/\/$/, "")}` +
-      "/api/telegram/webhook";
+      `${PUBLIC_URL.replace(/\/$/, "")}/api/telegram/webhook`;
 
     await telegramRequest("setWebhook", {
       url,
@@ -2603,10 +1808,7 @@ async function setupWebhook() {
 
     console.log("Telegram webhook configured");
   } catch (error) {
-    console.error(
-      "Webhook setup failed:",
-      error.message
-    );
+    console.error("Webhook setup failed:", error.message);
   }
 }
 
@@ -2619,9 +1821,6 @@ app.get("/", (req, res) => {
 /* Start server */
 
 app.listen(PORT, () => {
-  console.log(
-    `Premium Video server running on port ${PORT}`
-  );
-
+  console.log(`Premium Video server running on port ${PORT}`);
   setupWebhook();
 });
