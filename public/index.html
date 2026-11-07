@@ -158,6 +158,9 @@ const API="";
 const BOT_USERNAME="viralbox9_bot";
 const MONETAG_ZONE_ID="12187766";
 
+/* প্রতিটি Rewarded Ad-এর ন্যূনতম সময় */
+const MIN_REWARDED_AD_MS=10000;
+
 let currentPage=1,totalPages=1,currentCategory="all";
 let settings={},videos=[],rewardUrl="",rewardBusy=false,referralUrl="";
 let autoAdStarted=false;
@@ -234,9 +237,11 @@ function waitForMonetag(){
 }
 
 /*
-  Rewarded ad:
-  Promise resolve হলেই বিজ্ঞাপন সম্পন্ন হিসেবে গণনা হবে।
-  Promise reject হলে বিজ্ঞাপন গণনা হবে না।
+  Rewarded Ad-এর নিয়ম:
+  1. Monetag SDK Promise সফল হতে হবে।
+  2. Ad শুরু হওয়ার পর কমপক্ষে ১০ সেকেন্ড পার হতে হবে।
+  3. Promise reject হলে কোনো কাউন্ট পাঠানো হবে না।
+  4. সফল হলে একটি নতুন ymid সার্ভারে পাঠানো হবে।
 */
 
 async function showRewardedMonetag(requestVar){
@@ -245,12 +250,24 @@ async function showRewardedMonetag(requestVar){
   const ymid=makeYmid();
   const showAd=window["show_"+MONETAG_ZONE_ID];
 
+  const startedAt=Date.now();
+
+  // Monetag-এর Rewarded Ad চালু
   await showAd({
     type:"end",
     ymid:ymid,
     requestVar:requestVar
   });
 
+  // SDK সফলভাবে শেষ হওয়ার পরও ১০ সেকেন্ড পূর্ণ না হলে অপেক্ষা
+  const elapsed=Date.now()-startedAt;
+  const remaining=MIN_REWARDED_AD_MS-elapsed;
+
+  if(remaining>0){
+    await new Promise(resolve=>setTimeout(resolve,remaining));
+  }
+
+  // Promise সফল এবং ন্যূনতম সময় পূর্ণ হলেই ymid ফেরত যাবে
   return ymid;
 }
 
@@ -564,9 +581,10 @@ async function startVideoAdsUnlock(videoId){
 
       showModal(
         "📺 Video Unlock",
-        `ভিডিও আনলক করতে ${required}টি বিজ্ঞাপন সম্পন্ন করতে হবে।\n\nসম্পন্ন: ${completed} / ${required}\n\nবিজ্ঞাপন সম্পন্ন না হলে এই প্রক্রিয়া আবার শুরু করতে হবে।`
+        `ভিডিও আনলক করতে ${required}টি বিজ্ঞাপন সম্পন্ন করতে হবে।\n\nসম্পন্ন: ${completed} / ${required}\n\nপ্রতিটি বিজ্ঞাপন সম্পন্ন হতে কমপক্ষে ১০ সেকেন্ড লাগবে।`
       );
 
+      // SDK Promise সফল এবং ১০ সেকেন্ড পূর্ণ না হলে এখানেই অপেক্ষা করবে
       const ymid=await showRewardedMonetag("video_unlock");
 
       const verifyRes=await fetch(API+"/api/video/ad/verify",{
@@ -605,7 +623,7 @@ async function startVideoAdsUnlock(videoId){
 
       showModal(
         "✅ Ad Completed",
-        `একটি বিজ্ঞাপন সম্পন্ন হয়েছে।\n\nProgress: ${completed} / ${required}\n\nপরবর্তী বিজ্ঞাপন লোড হচ্ছে।`
+        `একটি বিজ্ঞাপন সফলভাবে সম্পন্ন হয়েছে।\n\nProgress: ${completed} / ${required}\n\nপরবর্তী বিজ্ঞাপন লোড হচ্ছে।`
       );
     }
 
@@ -731,6 +749,7 @@ async function watchRewardAd(){
   button.textContent="⏳ Showing Ad...";
 
   try{
+    // Rewarded Ad সফলভাবে শেষ এবং ন্যূনতম ১০ সেকেন্ড পূর্ণ হবে
     const ymid=await showRewardedMonetag("special_reward");
 
     button.textContent="⏳ Verifying Ad...";
@@ -745,7 +764,7 @@ async function watchRewardAd(){
     }else{
       showModal(
         "✅ Ad Completed",
-        `একটি বিজ্ঞাপন সম্পন্ন হয়েছে।\n\nProgress: ${Number(result.completed)||0} / ${Number(result.required)||50}`
+        `একটি বিজ্ঞাপন সফলভাবে সম্পন্ন হয়েছে।\n\nProgress: ${Number(result.completed)||0} / ${Number(result.required)||50}`
       );
     }
 
@@ -800,7 +819,6 @@ async function init(){
     }
   }
 
-  // SDK কখনো দেরিতে প্রস্তুত হলে Automatic Ads আবার চালু করার চেষ্টা।
   if(!autoAdStarted){
     window.addEventListener("load",initAutomaticAds,{once:true});
   }
