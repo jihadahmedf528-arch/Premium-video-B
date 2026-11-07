@@ -1483,7 +1483,8 @@ app.get(
   }
 );
 
-/* Notify users about new video */
+
+/* Notify users about new video with thumbnail */
 
 async function notifyAllUsers(video) {
   const snapshot = await db.ref("users").once("value");
@@ -1495,10 +1496,13 @@ async function notifyAllUsers(video) {
     ? `https://t.me/${botUsername}?start=v_${video.id}`
     : WEB_APP_URL;
 
-  const message =
-    `🎬 নতুন ভিডিও যোগ করা হয়েছে!\n\n` +
-    `📌 ${video.title}\n\n` +
-    `ভিডিও দেখতে নিচের বাটনে ক্লিক করুন।`;
+  const title = String(video.title || "নতুন ভিডিও").slice(0, 200);
+  const description = String(video.description || "").slice(0, 700);
+
+  const caption =
+    `🎬 ${title}\n\n` +
+    (description ? `${description}\n\n` : "") +
+    `📺 Premium Video-তে দেখতে নিচের বাটনে ক্লিক করো।`;
 
   const ids = Object.keys(users);
 
@@ -1508,20 +1512,50 @@ async function notifyAllUsers(video) {
     await Promise.allSettled(
       batch.map(async id => {
         try {
-          const buttons = deepLink
-            ? [[{ text: "▶️ ভিডিও দেখুন", url: deepLink }]]
-            : [];
+          const keyboard = deepLink
+            ? {
+                inline_keyboard: [[
+                  {
+                    text: "▶️ ভিডিও দেখুন",
+                    url: deepLink
+                  }
+                ]]
+              }
+            : undefined;
+
+          if (video.thumbnail) {
+            try {
+              await telegramRequest("sendPhoto", {
+                chat_id: id,
+                photo: video.thumbnail,
+                caption,
+                reply_markup: keyboard
+              });
+
+              return;
+            } catch (photoError) {
+              console.error(
+                `Thumbnail notification failed for ${id}:`,
+                photoError.message
+              );
+            }
+          }
 
           await telegramRequest("sendMessage", {
             chat_id: id,
-            text: message,
-            reply_markup: buttons.length
-              ? { inline_keyboard: buttons }
-              : undefined
+            text: caption,
+            reply_markup: keyboard,
+            disable_web_page_preview: false
           });
+
         } catch (error) {
           if (/blocked|chat not found|deactivated/i.test(error.message)) {
             await db.ref(`users/${id}`).update({ blocked: true });
+          } else {
+            console.error(
+              `Notification failed for ${id}:`,
+              error.message
+            );
           }
         }
       })
@@ -1530,6 +1564,7 @@ async function notifyAllUsers(video) {
 
   return ids.length;
 }
+
 
 /* Admin add video */
 
