@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -25,16 +26,7 @@ button{font-family:inherit;cursor:pointer}
 .brand h2{font-size:19px;margin:0}
 .brand small{color:var(--muted);font-size:11px}
 .header-actions{display:flex;align-items:center;gap:7px}
-.credit-display{
-  border:1px solid #76521f;
-  background:#2b2010;
-  color:#ffd36b;
-  border-radius:10px;
-  padding:10px 11px;
-  font-weight:bold;
-  font-size:12px;
-  white-space:nowrap;
-}
+.credit-display{border:1px solid #76521f;background:#2b2010;color:#ffd36b;border-radius:10px;padding:10px 11px;font-weight:bold;font-size:12px;white-space:nowrap}
 .refer-btn{border:1px solid #81302e;background:#281313;color:#ff7777;border-radius:10px;padding:10px 13px;font-weight:bold;font-size:13px;white-space:nowrap}
 .section-title{font-size:16px;font-weight:bold;margin:22px 0 12px}
 .promo{background:linear-gradient(110deg,#351414,#1c1111);border:1px solid #602424;border-radius:15px;padding:16px;display:flex;align-items:center;justify-content:space-between;gap:10px}
@@ -212,6 +204,9 @@ const MIN_REWARDED_AD_MS=10000;
 let currentPage=1,totalPages=1,currentCategory="all";
 let settings={},videos=[],rewardUrl="",rewardBusy=false,referralUrl="";
 let autoAdStarted=false;
+let autoAdInitializing=false;
+let autoAdRetryTimer=null;
+let autoAdAttempts=0;
 let videoAdBusy=false;
 let unlockBusy=false;
 let currentPlayerUrl="";
@@ -287,7 +282,7 @@ async function loadCreditBalance(){
   }
 }
 
-/* MONETAG */
+/* MONETAG SDK */
 
 function makeYmid(){
   if(window.crypto?.randomUUID)return window.crypto.randomUUID();
@@ -298,7 +293,11 @@ function monetagReady(){
   return typeof window["show_"+MONETAG_ZONE_ID]==="function";
 }
 
-function waitForMonetag(){
+/*
+  SDK লোড হতে দেরি হলে সর্বোচ্চ ৩০ সেকেন্ড অপেক্ষা করবে।
+  Automatic Ads এবং Rewarded Ads দুটোই এই একই SDK ব্যবহার করে।
+*/
+function waitForMonetag(maxWait=30000){
   return new Promise((resolve,reject)=>{
     if(monetagReady()){
       resolve();
@@ -306,17 +305,126 @@ function waitForMonetag(){
     }
 
     let elapsed=0;
+
     const check=setInterval(()=>{
       elapsed+=250;
 
       if(monetagReady()){
         clearInterval(check);
         resolve();
-      }else if(elapsed>=10000){
+      }else if(elapsed>=maxWait){
         clearInterval(check);
-        reject(new Error("Monetag SDK লোড হয়নি। কিছুক্ষণ পর আবার চেষ্টা করো।"));
+        reject(new Error("Monetag SDK লোড হয়নি। ইন্টারনেট বা SDK Zone ID পরীক্ষা করো।"));
       }
     },250);
+  });
+}
+
+/* =====================================
+   AUTOMATIC IN-APP ADS - UPDATED SYSTEM
+===================================== */
+
+function automaticAdsEnabled(){
+  const ads=settings.ads||{};
+
+  return ads.automaticAdsEnabled!==false &&
+    (!ads.network||ads.network==="monetag");
+}
+
+function initAutomaticAds(){
+  if(autoAdStarted||autoAdInitializing)return;
+
+  if(!automaticAdsEnabled()){
+    console.log("Automatic In-App Ads disabled from Admin Settings.");
+    return;
+  }
+
+  if(autoAdRetryTimer){
+    clearTimeout(autoAdRetryTimer);
+    autoAdRetryTimer=null;
+  }
+
+  autoAdInitializing=true;
+
+  waitForMonetag(30000)
+  .then(()=>{
+    if(!automaticAdsEnabled()){
+      autoAdInitializing=false;
+      return;
+    }
+
+    if(autoAdStarted){
+      autoAdInitializing=false;
+      return;
+    }
+
+    const showAd=window["show_"+MONETAG_ZONE_ID];
+    const ads=settings.ads||{};
+
+    const firstDelay=Math.max(
+      5,
+      Math.min(3600,Number(ads.autoFirstAdSeconds)||30)
+    );
+
+    const interval=Math.max(
+      10,
+      Math.min(3600,Number(ads.autoIntervalSeconds)||90)
+    );
+
+    /*
+      frequency = সর্বোচ্চ ২০টি বিজ্ঞাপন
+      capping = ২ ঘণ্টার সময়সীমা
+      interval = Admin Panel-এর নির্ধারিত ব্যবধান
+      timeout = Admin Panel-এর First Delay
+
+      Monetag SDK-তে capping-এর একক ঘণ্টা।
+    */
+
+    const inAppSettings={
+      frequency:20,
+      capping:2,
+      interval:interval,
+      timeout:firstDelay,
+      everyPage:false
+    };
+
+    console.log("Starting Monetag In-App Ads:",inAppSettings);
+
+    return Promise.resolve(
+      showAd({
+        type:"inApp",
+        inAppSettings:inAppSettings
+      })
+    );
+  })
+  .then(()=>{
+    if(automaticAdsEnabled()){
+      autoAdStarted=true;
+      autoAdAttempts=0;
+      console.log("Monetag In-App Ads initialized successfully.");
+    }
+
+    autoAdInitializing=false;
+  })
+  .catch(error=>{
+    autoAdInitializing=false;
+
+    console.error("Automatic In-App Ads initialization failed:",error);
+
+    if(!automaticAdsEnabled()||autoAdStarted)return;
+
+    if(autoAdAttempts<3){
+      autoAdAttempts++;
+
+      console.log("Retrying Monetag In-App Ads:",autoAdAttempts);
+
+      autoAdRetryTimer=setTimeout(()=>{
+        autoAdRetryTimer=null;
+        initAutomaticAds();
+      },15000);
+    }else{
+      console.error("Automatic Ads retry limit reached.");
+    }
   });
 }
 
@@ -377,37 +485,6 @@ async function showVideoUnlockAd(completed,required){
   }
 }
 
-/* AUTOMATIC INTERSTITIAL */
-
-function initAutomaticAds(){
-  if(autoAdStarted)return;
-
-  const ads=settings.ads||{};
-
-  if(ads.automaticAdsEnabled===false)return;
-  if(ads.network&&ads.network!=="monetag")return;
-  if(!monetagReady())return;
-
-  try{
-    const showAd=window["show_"+MONETAG_ZONE_ID];
-
-    showAd({
-      type:"inApp",
-      inAppSettings:{
-        frequency:3,
-        capping:2,
-        interval:Number(ads.autoIntervalSeconds)||90,
-        timeout:Number(ads.autoFirstAdSeconds)||30,
-        everyPage:false
-      }
-    });
-
-    autoAdStarted=true;
-  }catch(e){
-    console.error("Automatic Monetag initialization error:",e);
-  }
-}
-
 /* SETTINGS */
 
 async function loadSettings(){
@@ -435,6 +512,8 @@ async function loadSettings(){
       reward.unlockMessage||`Watch ${required} ads to unlock your reward URL.`;
 
     renderCategories();
+
+    // Settings পাওয়ার পর Automatic In-App Ads initialize হবে।
     initAutomaticAds();
 
   }catch(e){
@@ -1005,6 +1084,14 @@ function openExternal(url){
   }
 }
 
+/* AUTOMATIC ADS RETRY ON RETURN */
+
+document.addEventListener("visibilitychange",()=>{
+  if(!document.hidden&&!autoAdStarted&&automaticAdsEnabled()){
+    initAutomaticAds();
+  }
+});
+
 /* APP START */
 
 async function init(){
@@ -1021,12 +1108,14 @@ async function init(){
     }
   }
 
+  // SDK দেরিতে লোড হলে আরেকবার চেষ্টা করবে।
   if(!autoAdStarted){
-    window.addEventListener("load",initAutomaticAds,{once:true});
+    initAutomaticAds();
   }
 }
 
 init();
 </script>
+
 </body>
 </html>
