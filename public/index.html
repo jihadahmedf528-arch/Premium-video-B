@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -67,7 +68,7 @@ button{font-family:inherit;cursor:pointer}
 .page-number{font-size:13px;color:#ddd}
 .empty{text-align:center;padding:35px 10px;color:var(--muted);font-size:13px}
 .loading{text-align:center;padding:30px;color:#c6aaaa}
-.modal-bg{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;padding:20px;z-index:10}
+.modal-bg{position:fixed;inset:0;background:#000d;display:none;align-items:center;justify-content:center;padding:20px;z-index:100}
 .modal{width:100%;max-width:390px;background:#1b1414;border:1px solid #66302d;border-radius:17px;padding:22px;max-height:85vh;overflow-y:auto}
 .modal h3{margin:0 0 12px;font-size:18px}
 .modal p{color:#c6b6b6;font-size:13px;line-height:1.7;overflow-wrap:anywhere;white-space:pre-line}
@@ -75,11 +76,75 @@ button{font-family:inherit;cursor:pointer}
 .modal-close{background:linear-gradient(100deg,#ff303d,#ff8126)}
 .modal-copy{background:#302222;border:1px solid #674040}
 .footer{text-align:center;color:#746969;font-size:10px;margin-top:30px}
+
+/* VIDEO PLAYER PAGE */
+.player-screen{
+  display:none;
+  position:fixed;
+  inset:0;
+  z-index:200;
+  background:#050505;
+  overflow-y:auto;
+}
+.player-header{
+  height:58px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:0 15px;
+  border-bottom:1px solid #292020;
+}
+.player-back{
+  border:0;
+  background:#261717;
+  color:white;
+  border-radius:9px;
+  padding:10px 14px;
+  font-weight:bold;
+}
+.player-heading{
+  font-size:15px;
+  font-weight:bold;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+}
+.player-content{
+  width:100%;
+  max-width:800px;
+  margin:25px auto;
+  padding:0 12px;
+}
+.player-video{
+  display:block;
+  width:100%;
+  max-height:70vh;
+  background:#000;
+  border-radius:12px;
+  outline:none;
+}
+.player-title{
+  font-size:16px;
+  margin:17px 0 8px;
+  overflow-wrap:anywhere;
+}
+.player-note{
+  color:#999;
+  font-size:12px;
+  line-height:1.6;
+}
+.player-error{
+  display:none;
+  color:#ff7777;
+  padding:15px;
+  font-size:13px;
+  line-height:1.6;
+}
 </style>
 </head>
 
 <body>
-<div class="container">
+<div class="container" id="homePage">
 <header class="header">
   <div class="brand">
     <div class="logo">▶</div>
@@ -140,6 +205,31 @@ button{font-family:inherit;cursor:pointer}
 <div class="footer">© 2026 Premium Video • All Rights Reserved</div>
 </div>
 
+<!-- আলাদা ভিডিও প্লেয়ার পেজ -->
+<div class="player-screen" id="playerScreen">
+  <div class="player-header">
+    <button class="player-back" onclick="closeVideoPlayer()">← Back</button>
+    <div class="player-heading">Premium Video Player</div>
+  </div>
+
+  <div class="player-content">
+    <video
+      id="videoPlayer"
+      class="player-video"
+      controls
+      playsinline
+      webkit-playsinline
+      controlsList="nodownload noplaybackrate"
+      disablePictureInPicture
+      preload="metadata"
+    ></video>
+
+    <div class="player-error" id="playerError"></div>
+    <h3 class="player-title" id="playerTitle">Video</h3>
+    <p class="player-note">ভিডিও দেখা শেষ হলে Back বাটনে ক্লিক করে ফিরে আসো।</p>
+  </div>
+</div>
+
 <div class="modal-bg" id="modalBg" onclick="closeModal(event)">
   <div class="modal" onclick="event.stopPropagation()">
     <h3 id="modalTitle">Premium Video</h3>
@@ -156,15 +246,14 @@ if(tg){tg.ready();tg.expand()}
 const API="";
 const BOT_USERNAME="viralbox9_bot";
 const MONETAG_ZONE_ID="12187766";
-
 const MIN_REWARDED_AD_MS=10000;
 
 let currentPage=1,totalPages=1,currentCategory="all";
 let settings={},videos=[],rewardUrl="",rewardBusy=false,referralUrl="";
 let autoAdStarted=false;
-let manualAdBusy=false;
 let videoAdBusy=false;
 let unlockBusy=false;
+let currentPlayerUrl="";
 
 const headers={
   "Content-Type":"application/json",
@@ -243,14 +332,13 @@ function waitForMonetag(){
   });
 }
 
-/* SPECIAL REWARD-এর আগের Rewarded Ad নিয়ম অপরিবর্তিত */
+/* SPECIAL REWARD */
 
 async function showRewardedMonetag(requestVar){
   await waitForMonetag();
 
   const ymid=makeYmid();
   const showAd=window["show_"+MONETAG_ZONE_ID];
-
   const startedAt=Date.now();
 
   await showAd({
@@ -269,20 +357,9 @@ async function showRewardedMonetag(requestVar){
   return ymid;
 }
 
-/*
-  VIDEO UNLOCK-এর নতুন নিয়ম:
+/* VIDEO UNLOCK AD */
 
-  1. Monetag Rewarded Ad চালু হবে।
-  2. SDK Promise-এর জন্য অপেক্ষা করা হবে না।
-  3. দৃশ্যমান ১০ সেকেন্ডের কাউন্টডাউন চলবে।
-  4. ১০ সেকেন্ড শেষে সার্ভারে ১টি Ad Count পাঠানো হবে।
-  5. Server থেকে completed / required / unlocked পাওয়া যাবে।
-
-  এটি ক্লিক ও টাইমারভিত্তিক গণনা।
-  এটি Monetag-এর প্রকৃত impression বা completion যাচাই করে না।
-*/
-
-async function showVideoUnlockAd(){
+async function showVideoUnlockAd(completed,required){
   await waitForMonetag();
 
   const showAd=window["show_"+MONETAG_ZONE_ID];
@@ -293,8 +370,6 @@ async function showVideoUnlockAd(){
       requestVar:"video_unlock"
     });
 
-    // SDK Promise সফল/ব্যর্থ হওয়ার জন্য অপেক্ষা করা হবে না।
-    // এখানে কোনো verification করা হচ্ছে না।
     if(adResult&&typeof adResult.catch==="function"){
       adResult.catch(error=>{
         console.warn("Video unlock ad SDK result:",error);
@@ -304,11 +379,10 @@ async function showVideoUnlockAd(){
     console.warn("Video unlock ad launch error:",e);
   }
 
-  // দৃশ্যমান ১০ সেকেন্ডের কাউন্টডাউন
   for(let remaining=10;remaining>0;remaining--){
     showModal(
       "📺 Video Unlock",
-      `বিজ্ঞাপন দেখার সময় চলছে।\n\n⏳ বাকি সময়: ${remaining} সেকেন্ড\n\n১০ সেকেন্ড পূর্ণ হলে বিজ্ঞাপনটি গণনা হবে।`
+      `বিজ্ঞাপন দেখার সময় চলছে।\n\n📊 Ad Progress: ${completed} / ${required}\n\n⏳ বাকি সময়: ${remaining} সেকেন্ড`
     );
 
     await new Promise(resolve=>setTimeout(resolve,1000));
@@ -322,20 +396,9 @@ function initAutomaticAds(){
 
   const ads=settings.ads||{};
 
-  if(ads.automaticAdsEnabled===false){
-    console.log("Automatic Monetag ads disabled by admin");
-    return;
-  }
-
-  if(ads.network&&ads.network!=="monetag"){
-    console.log("Monetag is not the selected ad network");
-    return;
-  }
-
-  if(!monetagReady()){
-    console.warn("Monetag SDK not ready for automatic ads");
-    return;
-  }
+  if(ads.automaticAdsEnabled===false)return;
+  if(ads.network&&ads.network!=="monetag")return;
+  if(!monetagReady())return;
 
   try{
     const showAd=window["show_"+MONETAG_ZONE_ID];
@@ -352,8 +415,6 @@ function initAutomaticAds(){
     });
 
     autoAdStarted=true;
-    console.log("Monetag automatic interstitial initialized");
-
   }catch(e){
     console.error("Automatic Monetag initialization error:",e);
   }
@@ -574,7 +635,82 @@ function openReferral(){
   );
 }
 
-/* VIDEO AD UNLOCK - SIMPLE COUNTING */
+/* VIDEO PLAYER */
+
+function openVideoPlayer(url,title){
+  if(!url){
+    showModal("Video Error","ভিডিওর URL পাওয়া যায়নি।");
+    return;
+  }
+
+  const player=document.getElementById("videoPlayer");
+  const screen=document.getElementById("playerScreen");
+  const error=document.getElementById("playerError");
+
+  currentPlayerUrl=url;
+  error.style.display="none";
+  error.textContent="";
+
+  document.getElementById("playerTitle").textContent=title||"Premium Video";
+
+  player.pause();
+  player.removeAttribute("src");
+  player.load();
+
+  player.src=url;
+  player.load();
+
+  document.getElementById("homePage").style.display="none";
+  screen.style.display="block";
+
+  if(tg?.BackButton){
+    tg.BackButton.show();
+    tg.BackButton.onClick(closeVideoPlayer);
+  }
+
+  player.play().catch(()=>{
+    // কিছু ফোনে autoplay বন্ধ থাকলে ইউজার Play চাপবে।
+  });
+
+  window.scrollTo(0,0);
+}
+
+function closeVideoPlayer(){
+  const player=document.getElementById("videoPlayer");
+
+  player.pause();
+  player.removeAttribute("src");
+  player.load();
+
+  currentPlayerUrl="";
+
+  document.getElementById("playerScreen").style.display="none";
+  document.getElementById("homePage").style.display="block";
+
+  if(tg?.BackButton){
+    tg.BackButton.hide();
+  }
+}
+
+document.getElementById("videoPlayer").addEventListener("error",()=>{
+  const error=document.getElementById("playerError");
+  error.style.display="block";
+  error.textContent="ভিডিওটি চালানো যাচ্ছে না। Admin Panel-এ Video URL পরীক্ষা করো। সরাসরি MP4 বা সমর্থিত ভিডিও URL ব্যবহার করো।";
+});
+
+/* PLAYER DOWNLOAD BLOCKING - BASIC */
+
+document.getElementById("videoPlayer").addEventListener("contextmenu",e=>{
+  e.preventDefault();
+});
+
+document.addEventListener("contextmenu",e=>{
+  if(document.getElementById("playerScreen").style.display==="block"){
+    e.preventDefault();
+  }
+});
+
+/* VIDEO AD UNLOCK */
 
 async function startVideoAdsUnlock(videoId){
   if(videoAdBusy||unlockBusy||rewardBusy)return;
@@ -601,23 +737,20 @@ async function startVideoAdsUnlock(videoId){
     await waitForMonetag();
 
     let completed=0;
-    let required=getVideoAdsRequired(
-      videos.find(v=>String(v.id)===String(videoId))||{}
-    );
+
+    let video=videos.find(v=>String(v.id)===String(videoId))||{};
+
+    let required=getVideoAdsRequired(video);
 
     while(completed<required){
 
-      // প্রতিটি বিজ্ঞাপনের জন্য ১০ সেকেন্ড কাউন্টডাউন
-      await showVideoUnlockAd();
+      await showVideoUnlockAd(completed,required);
 
       showModal(
         "⏳ Counting Ad",
-        "১০ সেকেন্ড পূর্ণ হয়েছে। বিজ্ঞাপনটি গণনা করা হচ্ছে..."
+        `Ad Progress: ${completed} / ${required}\n\n১০ সেকেন্ড পূর্ণ হয়েছে। গণনা করা হচ্ছে...`
       );
 
-      // নতুন সহজ endpoint:
-      // শুধু videoId পাঠানো হবে।
-      // কোনো attemptId বা ymid পাঠানো হবে না।
       const countRes=await fetch(API+"/api/video/ad/count",{
         method:"POST",
         headers,
@@ -643,19 +776,20 @@ async function startVideoAdsUnlock(videoId){
 
         hideModal();
 
-        showModal(
-          "🎉 Video Unlocked!",
-          `অভিনন্দন! তুমি ${completed}টি বিজ্ঞাপন সম্পন্ন করেছ। ভিডিও আনলক হয়েছে।`
+        openVideoPlayer(
+          countData.videoUrl,
+          video.title||"Premium Video"
         );
 
-        openExternal(countData.videoUrl);
         return;
       }
 
       showModal(
         "✅ Ad Counted",
-        `একটি বিজ্ঞাপন গণনা হয়েছে।\n\nProgress: ${completed} / ${required}\n\nপরবর্তী বিজ্ঞাপন প্রস্তুত হচ্ছে।`
+        `একটি বিজ্ঞাপন গণনা হয়েছে।\n\n📊 Ad Progress: ${completed} / ${required}\n\nপরবর্তী বিজ্ঞাপন প্রস্তুত হচ্ছে।`
       );
+
+      await new Promise(resolve=>setTimeout(resolve,700));
     }
 
   }catch(e){
@@ -734,7 +868,7 @@ async function loadRewardStatus(){
   }
 }
 
-/* SPECIAL REWARD AD - আগের সিস্টেম অপরিবর্তিত */
+/* SPECIAL REWARD AD */
 
 async function verifyRewardAd(ymid){
   const res=await fetch(API+"/api/reward/verify",{
