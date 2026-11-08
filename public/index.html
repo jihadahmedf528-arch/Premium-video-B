@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -273,31 +274,20 @@ function popupEnabledFor(type){
   return false;
 }
 
-/*
-  Rewarded Popup:
-  SDK call সরাসরি user click-এর পর করা হচ্ছে।
-  Popup শুধু pre-step; এটি কোনো credit বা unlock দেয় না।
-*/
+/* REWARDED POPUP */
+
 function showRewardedPopup(requestVar){
-  if(!rewardedPopupEnabled()) return Promise.resolve(true);
-
-  // User click-এর সরাসরি সময় SDK call করতে হবে।
+  if(!rewardedPopupEnabled())return Promise.resolve(true);
   if(!monetagReady()){
-    return Promise.reject(
-      new Error("Monetag SDK এখনো লোড হয়নি। আবার চেষ্টা করো।")
-    );
+    return Promise.reject(new Error("Monetag SDK এখনো লোড হয়নি। আবার চেষ্টা করো।"));
   }
-
   const showAd=window["show_"+MONETAG_ZONE_ID];
-
   return Promise.resolve(showAd({
     type:"pop",
     ymid:makeYmid(),
     requestVar:requestVar||"premium_video_popup"
   })).then(()=>true);
 }
-
-
 
 async function runPopupBeforeAction(type,requestVar){
   if(!popupEnabledFor(type))return true;
@@ -381,25 +371,34 @@ async function showRewardedMonetag(requestVar){
   return ymid;
 }
 
-/* VIDEO REWARDED INTERSTITIAL */
+/* VIDEO REWARDED AD DISPLAY */
 
-async function showVideoUnlockAd(completed,required){
-  const adsEnabled=rewardedInterstitialEnabled();
+async function showVideoUnlockAd(completed,required,minimumWatchMs){
+  await waitForMonetag();
 
-  if(adsEnabled){
-    await waitForMonetag();
-    const showAd=window["show_"+MONETAG_ZONE_ID];
+  const showAd=window["show_"+MONETAG_ZONE_ID];
+  const ymid=makeYmid();
 
-    try{
-      const adResult=showAd({type:"end",ymid:makeYmid(),requestVar:"video_unlock"});
-      if(adResult&&typeof adResult.catch==="function"){
-        adResult.catch(error=>console.warn("Video rewarded ad SDK result:",error));
-      }
-    }catch(e){console.warn("Video rewarded ad launch error:",e)}
+  // Monetag rewarded ad চালু করা হচ্ছে।
+  // SDK promise reject করলে error log হবে; server session ও timer আলাদাভাবে validate হবে।
+  try{
+    const adResult=showAd({
+      type:"end",
+      ymid:ymid,
+      requestVar:"video_unlock"
+    });
+
+    if(adResult&&typeof adResult.catch==="function"){
+      adResult.catch(error=>console.warn("Video rewarded ad SDK result:",error));
+    }
+  }catch(e){
+    console.warn("Video rewarded ad launch error:",e);
   }
 
-  // আগের মতো ১০ সেকেন্ডের কাউন্টডাউন।
-  for(let remaining=10;remaining>0;remaining--){
+  const watchMs=Math.max(MIN_REWARDED_AD_MS,Number(minimumWatchMs)||MIN_REWARDED_AD_MS);
+  const totalSeconds=Math.ceil(watchMs/1000);
+
+  for(let remaining=totalSeconds;remaining>0;remaining--){
     showModal(
       "📺 Video Unlock",
       `বিজ্ঞাপন দেখার সময় চলছে।\n\n📊 Ad Progress: ${completed} / ${required}\n\n⏳ বাকি সময়: ${remaining} সেকেন্ড`
@@ -614,12 +613,12 @@ async function unlockVideoWithCredit(videoId){
   }
 
   if(popupEnabledFor("video")){
-  const ok=await runPopupBeforeAction("video","video_credit_unlock_popup");
-  if(!ok)return;
-}
+    const ok=await runPopupBeforeAction("video","video_credit_unlock_popup");
+    if(!ok)return;
+  }
 
-const video=videos.find(v=>String(v.id)===String(videoId))||{};
-unlockBusy=true;
+  const video=videos.find(v=>String(v.id)===String(videoId))||{};
+  unlockBusy=true;
   setVideoButtonsDisabled(true,"⏳ Unlocking...");
 
   try{
@@ -706,7 +705,46 @@ document.addEventListener("contextmenu",e=>{
   if(document.getElementById("playerScreen").style.display==="block")e.preventDefault();
 });
 
-/* VIDEO AD UNLOCK */
+/* VIDEO AD SESSION UNLOCK */
+
+async function createVideoAdSession(videoId){
+  const res=await fetch(API+"/api/video/ad/start",{
+    method:"POST",
+    headers,
+    body:JSON.stringify({videoId:String(videoId)})
+  });
+
+  const data=await res.json();
+
+  if(!res.ok||!data.success){
+    throw new Error(data.error||"Ad Session তৈরি করা যায়নি।");
+  }
+
+  if(!data.sessionId){
+    throw new Error("Server থেকে Ad Session ID পাওয়া যায়নি।");
+  }
+
+  return data;
+}
+
+async function countVideoAdSession(videoId,sessionId){
+  const res=await fetch(API+"/api/video/ad/count",{
+    method:"POST",
+    headers,
+    body:JSON.stringify({
+      videoId:String(videoId),
+      sessionId:String(sessionId)
+    })
+  });
+
+  const data=await res.json();
+
+  if(!res.ok||!data.success){
+    throw new Error(data.error||"বিজ্ঞাপন গণনা করা যায়নি।");
+  }
+
+  return data;
+}
 
 async function startVideoAdsUnlock(videoId){
   if(videoAdBusy||unlockBusy||rewardBusy||popupBusy)return;
@@ -715,14 +753,16 @@ async function startVideoAdsUnlock(videoId){
     showModal("Telegram Required","ভিডিও আনলক করতে Telegram Mini App থেকে প্রবেশ করো।");
     return;
   }
-  if(!videoId){showModal("Unlock Error","ভিডিওর ID পাওয়া যায়নি।");return}
+  if(!videoId){
+    showModal("Unlock Error","ভিডিওর ID পাওয়া যায়নি।");
+    return;
+  }
 
   if(settings.ads?.network&&settings.ads.network!=="monetag"){
     showModal("Ads Unavailable","বর্তমানে Monetag বিজ্ঞাপন চালু নেই।");
     return;
   }
 
-  // Rewarded Popup চালু থাকলে আগে Popup; এরপর পুরোনো ভিডিও Unlock flow।
   if(popupEnabledFor("video")){
     const ok=await runPopupBeforeAction("video","video_unlock_popup");
     if(!ok)return;
@@ -745,29 +785,46 @@ async function continueVideoAdsUnlock(videoId){
   try{
     await waitForMonetag();
 
-    let completed=0;
     const video=videos.find(v=>String(v.id)===String(videoId))||{};
+    let completed=0;
     let required=getVideoAdsRequired(video);
 
+    // Server থেকে আগে progress এবং নতুন session নেওয়া হবে।
+    let sessionData=await createVideoAdSession(videoId);
+
+    completed=Number(sessionData.completed)||0;
+    required=Math.max(1,Number(sessionData.required)||required);
+
+    if(sessionData.unlocked){
+      if(!sessionData.videoUrl){
+        throw new Error("ভিডিওর URL পাওয়া যায়নি। Admin Panel-এ Video URL পরীক্ষা করো।");
+      }
+      hideModal();
+      openVideoPlayer(sessionData.videoUrl,video.title||"Premium Video");
+      return;
+    }
+
+    if(completed>=required){
+      throw new Error("ভিডিও Unlock Progress যাচাই করা যায়নি। আবার চেষ্টা করো।");
+    }
+
     while(completed<required){
-      await showVideoUnlockAd(completed,required);
+      // প্রতিটি Ad-এর জন্য আলাদা server session।
+      const sessionId=sessionData.sessionId;
+      const minimumWatchMs=Math.max(
+        MIN_REWARDED_AD_MS,
+        Number(sessionData.minimumWatchMs)||MIN_REWARDED_AD_MS
+      );
+
+      await showVideoUnlockAd(completed,required,minimumWatchMs);
 
       showModal(
         "⏳ Counting Ad",
-        `Ad Progress: ${completed} / ${required}\n\n১০ সেকেন্ড পূর্ণ হয়েছে। গণনা করা হচ্ছে...`
+        `Ad Progress: ${completed} / ${required}\n\nসময় পূর্ণ হয়েছে। বিজ্ঞাপন গণনা করা হচ্ছে...`
       );
 
-      const countRes=await fetch(API+"/api/video/ad/count",{
-        method:"POST",
-        headers,
-        body:JSON.stringify({videoId:String(videoId)})
-      });
-
-      const countData=await countRes.json();
-
-      if(!countRes.ok||!countData.success){
-        throw new Error(countData.error||"বিজ্ঞাপন গণনা করা যায়নি।");
-      }
+      // একই session ID দিয়ে একবারই গণনার অনুরোধ।
+      const countData=await countVideoAdSession(videoId,sessionId);
 
       completed=Number(countData.completed)||0;
       required=Math.max(1,Number(countData.required)||required);
@@ -783,13 +840,36 @@ async function continueVideoAdsUnlock(videoId){
 
       showModal(
         "✅ Ad Counted",
-        `একটি বিজ্ঞাপন গণনা হয়েছে।\n\n📊 Ad Progress: ${completed} / ${required}\n\nপরবর্তী বিজ্ঞাপন প্রস্তুত হচ্ছে।`
+        `একটি বিজ্ঞাপন গণনা হয়েছে।\n\n📊 Ad Progress: ${completed} / ${required}\n\nপরবর্তী বিজ্ঞাপনের Session তৈরি হচ্ছে।`
       );
+
       await new Promise(resolve=>setTimeout(resolve,700));
+
+      if(completed<required){
+        // পরের Ad-এর জন্য নতুন Session।
+        sessionData=await createVideoAdSession(videoId);
+
+        // Server progress-এর সঙ্গে frontend progress মিলিয়ে নেওয়া।
+        completed=Number(sessionData.completed)||completed;
+        required=Math.max(1,Number(sessionData.required)||required);
+
+        if(sessionData.unlocked){
+          if(!sessionData.videoUrl){
+            throw new Error("ভিডিওর URL পাওয়া যায়নি।");
+          }
+          hideModal();
+          openVideoPlayer(sessionData.videoUrl,video.title||"Premium Video");
+          return;
+        }
+      }
     }
   }catch(e){
-    console.error("Video ad unlock error:",e);
-    showModal("Video Unlock Failed",e.message||"ভিডিও আনলক করা যায়নি।");
+    console.error("Video ad session error:",e);
+    showModal(
+      "Video Unlock Failed",
+      (e.message||"ভিডিও আনলক করা যায়নি।")+
+      "\n\nতোমার আগে সম্পন্ন করা বিজ্ঞাপনের Progress Server-এ সংরক্ষিত থাকলে পরেরবার সেখান থেকেই শুরু হবে।"
+    );
   }finally{
     videoAdBusy=false;
     setVideoButtonsDisabled(false);
@@ -876,7 +956,6 @@ async function watchRewardAd(){
   button.textContent="⏳ Showing Ad...";
 
   try{
-    // Special Reward-এর জন্য আগের Rewarded Interstitial flow-ই থাকবে।
     const ymid=await showRewardedMonetag("special_reward");
     button.textContent="⏳ Verifying Ad...";
 
