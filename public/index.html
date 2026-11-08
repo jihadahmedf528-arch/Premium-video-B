@@ -278,21 +278,24 @@ function popupEnabledFor(type){
   SDK call সরাসরি user click-এর পর করা হচ্ছে।
   Popup শুধু pre-step; এটি কোনো credit বা unlock দেয় না।
 */
-async function showRewardedPopup(requestVar){
-  if(!rewardedPopupEnabled())return true;
+function showRewardedPopup(requestVar){
+  if(!rewardedPopupEnabled()) return Promise.resolve(true);
 
+  // User click-এর সরাসরি সময় SDK call করতে হবে।
   if(!monetagReady()){
-    await waitForMonetag();
+    return Promise.reject(
+      new Error("Monetag SDK এখনো লোড হয়নি। আবার চেষ্টা করো।")
+    );
   }
 
   const showAd=window["show_"+MONETAG_ZONE_ID];
 
-  // type: pop = Rewarded Popup
-  await showAd({
+  return Promise.resolve(showAd({
     type:"pop",
     ymid:makeYmid(),
     requestVar:requestVar||"premium_video_popup"
-  });
+  })).then(()=>true);
+}
 
   return true;
 }
@@ -611,8 +614,13 @@ async function unlockVideoWithCredit(videoId){
     return;
   }
 
-  const video=videos.find(v=>String(v.id)===String(videoId))||{};
-  unlockBusy=true;
+  if(popupEnabledFor("video")){
+  const ok=await runPopupBeforeAction("video","video_credit_unlock_popup");
+  if(!ok)return;
+}
+
+const video=videos.find(v=>String(v.id)===String(videoId))||{};
+unlockBusy=true;
   setVideoButtonsDisabled(true,"⏳ Unlocking...");
 
   try{
