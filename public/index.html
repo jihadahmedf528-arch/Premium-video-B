@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -11,11 +10,7 @@
 <script src="https://libtl.com/sdk.js" data-zone="12187766" data-sdk="show_12187766"></script>
 
 <style>
-:root{
-  --bg:#090909;--card:#171313;--card2:#211515;
-  --red:#ff303d;--orange:#ff8a24;--text:#fff;
-  --muted:#a9a0a0;--border:#342323;
-}
+:root{--bg:#090909;--card:#171313;--card2:#211515;--red:#ff303d;--orange:#ff8a24;--text:#fff;--muted:#a9a0a0;--border:#342323}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,sans-serif;padding-bottom:35px}
 button{font-family:inherit;cursor:pointer}
@@ -79,8 +74,6 @@ button{font-family:inherit;cursor:pointer}
 .modal-close{background:linear-gradient(100deg,#ff303d,#ff8126)}
 .modal-copy{background:#302222;border:1px solid #674040}
 .footer{text-align:center;color:#746969;font-size:10px;margin-top:30px}
-
-/* VIDEO PLAYER PAGE */
 .player-screen{display:none;position:fixed;inset:0;z-index:200;background:#050505;overflow-y:auto}
 .player-header{height:58px;display:flex;align-items:center;gap:12px;padding:0 15px;border-bottom:1px solid #292020}
 .player-back{border:0;background:#261717;color:white;border-radius:9px;padding:10px 14px;font-weight:bold}
@@ -90,15 +83,7 @@ button{font-family:inherit;cursor:pointer}
 .player-title{font-size:16px;margin:17px 0 8px;overflow-wrap:anywhere}
 .player-note{color:#999;font-size:12px;line-height:1.6}
 .player-error{display:none;color:#ff7777;padding:15px;font-size:13px;line-height:1.6}
-
-@media(max-width:380px){
-  .brand h2{font-size:16px}
-  .brand small{font-size:10px}
-  .logo{width:37px;height:37px}
-  .header-actions{gap:5px}
-  .credit-display{padding:9px 8px;font-size:11px}
-  .refer-btn{padding:9px 10px;font-size:12px}
-}
+@media(max-width:380px){.brand h2{font-size:16px}.brand small{font-size:10px}.logo{width:37px;height:37px}.header-actions{gap:5px}.credit-display{padding:9px 8px;font-size:11px}.refer-btn{padding:9px 10px;font-size:12px}}
 </style>
 </head>
 
@@ -112,7 +97,6 @@ button{font-family:inherit;cursor:pointer}
       <small>Watch • Enjoy • Discover</small>
     </div>
   </div>
-
   <div class="header-actions">
     <div class="credit-display" id="creditDisplay">🪙 <span id="creditBalance">0</span> Credits</div>
     <button class="refer-btn" onclick="openReferral()">Refer</button>
@@ -122,10 +106,7 @@ button{font-family:inherit;cursor:pointer}
 <div class="promo">
   <div class="promo-info">
     <div class="telegram-icon">✈</div>
-    <div>
-      <h3 id="promoName">Promotional Channel</h3>
-      <p>Join our official channel</p>
-    </div>
+    <div><h3 id="promoName">Promotional Channel</h3><p>Join our official channel</p></div>
   </div>
   <button class="join-btn" onclick="joinChannel()">JOIN</button>
 </div>
@@ -141,8 +122,7 @@ button{font-family:inherit;cursor:pointer}
   </div>
   <div class="reward-progress"><div id="rewardBar"></div></div>
   <div class="reward-bottom">
-    <span id="rewardCount">0 / 50 Ads</span>
-    <span id="rewardPercent">0%</span>
+    <span id="rewardCount">0 / 50 Ads</span><span id="rewardPercent">0%</span>
   </div>
   <button class="reward-action" id="rewardButton" onclick="watchRewardAd()">▶ Watch Ads</button>
   <div class="reward-result" id="rewardResult">
@@ -153,9 +133,7 @@ button{font-family:inherit;cursor:pointer}
 </div>
 
 <div class="section-title">📂 Video Categories</div>
-<div class="categories" id="categories">
-  <button class="cat active" data-id="all">All Videos</button>
-</div>
+<div class="categories" id="categories"><button class="cat active" data-id="all">All Videos</button></div>
 
 <div class="section-title">🎬 Latest Videos</div>
 <div id="videoList"><div class="loading">Loading videos...</div></div>
@@ -173,10 +151,8 @@ button{font-family:inherit;cursor:pointer}
     <button class="player-back" onclick="closeVideoPlayer()">← Back</button>
     <div class="player-heading">Premium Video Player</div>
   </div>
-
   <div class="player-content">
-    <video id="videoPlayer" class="player-video" controls playsinline webkit-playsinline
-      controlsList="nodownload noplaybackrate" disablePictureInPicture preload="metadata"></video>
+    <video id="videoPlayer" class="player-video" controls playsinline webkit-playsinline controlsList="nodownload noplaybackrate" disablePictureInPicture preload="metadata"></video>
     <div class="player-error" id="playerError"></div>
     <h3 class="player-title" id="playerTitle">Video</h3>
     <p class="player-note">ভিডিও দেখা শেষ হলে Back বাটনে ক্লিক করে ফিরে আসো।</p>
@@ -203,14 +179,9 @@ const MIN_REWARDED_AD_MS=10000;
 
 let currentPage=1,totalPages=1,currentCategory="all";
 let settings={},videos=[],rewardUrl="",rewardBusy=false,referralUrl="";
-let autoAdStarted=false;
-let autoAdInitializing=false;
-let autoAdRetryTimer=null;
-let autoAdAttempts=0;
-let videoAdBusy=false;
-let unlockBusy=false;
-let currentPlayerUrl="";
-let creditBalance=0;
+let autoAdStarted=false,autoAdInitializing=false,autoAdRetryTimer=null,autoAdAttempts=0;
+let videoAdBusy=false,unlockBusy=false,currentPlayerUrl="",creditBalance=0;
+let popupBusy=false;
 
 const headers={
   "Content-Type":"application/json",
@@ -223,14 +194,8 @@ function showModal(title,text,copyButton=false){
   document.getElementById("modalCopy").style.display=copyButton?"block":"none";
   document.getElementById("modalBg").style.display="flex";
 }
-
-function hideModal(){
-  document.getElementById("modalBg").style.display="none";
-}
-
-function closeModal(e){
-  if(e.target.id==="modalBg")hideModal();
-}
+function hideModal(){document.getElementById("modalBg").style.display="none"}
+function closeModal(e){if(e.target.id==="modalBg")hideModal()}
 
 async function copyText(text){
   try{
@@ -238,25 +203,13 @@ async function copyText(text){
       await navigator.clipboard.writeText(text);
     }else{
       const area=document.createElement("textarea");
-      area.value=text;
-      area.style.position="fixed";
-      area.style.opacity="0";
-      document.body.appendChild(area);
-      area.select();
-      document.execCommand("copy");
-      area.remove();
+      area.value=text;area.style.position="fixed";area.style.opacity="0";
+      document.body.appendChild(area);area.select();document.execCommand("copy");area.remove();
     }
     showModal("Copied Successfully","লিংকটি কপি হয়েছে।");
-  }catch(e){
-    showModal("Copy Failed","লিংক কপি করা যায়নি। আবার চেষ্টা করো।");
-  }
+  }catch(e){showModal("Copy Failed","লিংক কপি করা যায়নি। আবার চেষ্টা করো।")}
 }
-
-async function copyReferral(){
-  if(referralUrl)await copyText(referralUrl);
-}
-
-/* CREDIT BALANCE */
+async function copyReferral(){if(referralUrl)await copyText(referralUrl)}
 
 function updateCreditBalance(value){
   const parsed=Number(value);
@@ -266,221 +219,189 @@ function updateCreditBalance(value){
 
 async function loadCreditBalance(){
   if(!tg?.initData)return;
-
   try{
     const res=await fetch(API+"/api/credits/status",{headers});
     const data=await res.json();
-
-    if(!res.ok||!data.success){
-      console.warn("Credit status unavailable:",data.error||res.status);
-      return;
-    }
-
+    if(!res.ok||!data.success){console.warn("Credit status unavailable:",data.error||res.status);return}
     updateCreditBalance(data.credits);
-  }catch(e){
-    console.error("Credit balance error:",e);
-  }
+  }catch(e){console.error("Credit balance error:",e)}
 }
 
 /* MONETAG SDK */
 
 function makeYmid(){
   if(window.crypto?.randomUUID)return window.crypto.randomUUID();
-  return "pv_"+Date.now()+"_"+Math.random().toString(36).slice(2)+"_"+Math.random().toString(36).slice(2);
+  return "pv_"+Date.now()+"_"+Math.random().toString(36).slice(2);
 }
+function monetagReady(){return typeof window["show_"+MONETAG_ZONE_ID]==="function"}
 
-function monetagReady(){
-  return typeof window["show_"+MONETAG_ZONE_ID]==="function";
-}
-
-/*
-  SDK লোড হতে দেরি হলে সর্বোচ্চ ৩০ সেকেন্ড অপেক্ষা করবে।
-  Automatic Ads এবং Rewarded Ads দুটোই এই একই SDK ব্যবহার করে।
-*/
 function waitForMonetag(maxWait=30000){
   return new Promise((resolve,reject)=>{
-    if(monetagReady()){
-      resolve();
-      return;
-    }
-
+    if(monetagReady()){resolve();return}
     let elapsed=0;
-
     const check=setInterval(()=>{
       elapsed+=250;
-
-      if(monetagReady()){
-        clearInterval(check);
-        resolve();
-      }else if(elapsed>=maxWait){
-        clearInterval(check);
-        reject(new Error("Monetag SDK লোড হয়নি। ইন্টারনেট বা SDK Zone ID পরীক্ষা করো।"));
-      }
+      if(monetagReady()){clearInterval(check);resolve()}
+      else if(elapsed>=maxWait){clearInterval(check);reject(new Error("Monetag SDK লোড হয়নি। ইন্টারনেট বা SDK Zone ID পরীক্ষা করো।"))}
     },250);
   });
 }
 
-/* =====================================
-   AUTOMATIC IN-APP ADS - UPDATED SYSTEM
-===================================== */
+/* ADMIN AD SETTINGS */
+
+function getAdsSettings(){return settings.ads||{}}
 
 function automaticAdsEnabled(){
-  const ads=settings.ads||{};
-
-  return ads.automaticAdsEnabled!==false &&
-    (!ads.network||ads.network==="monetag");
+  const ads=getAdsSettings();
+  return ads.automaticAdsEnabled!==false&&(!ads.network||ads.network==="monetag");
 }
 
+function rewardedInterstitialEnabled(){
+  return getAdsSettings().rewardedInterstitialEnabled!==false;
+}
+
+function rewardedPopupEnabled(){
+  return getAdsSettings().rewardedPopupEnabled!==false;
+}
+
+function popupEnabledFor(type){
+  const ads=getAdsSettings();
+  if(!rewardedPopupEnabled())return false;
+  if(type==="referral")return ads.popupOnReferral!==false;
+  if(type==="video")return ads.popupOnVideoUnlock!==false;
+  if(type==="bonus")return ads.popupOnBonus===true;
+  return false;
+}
+
+/*
+  Rewarded Popup:
+  SDK call সরাসরি user click-এর পর করা হচ্ছে।
+  Popup শুধু pre-step; এটি কোনো credit বা unlock দেয় না।
+*/
+async function showRewardedPopup(requestVar){
+  if(!rewardedPopupEnabled())return true;
+
+  if(!monetagReady()){
+    await waitForMonetag();
+  }
+
+  const showAd=window["show_"+MONETAG_ZONE_ID];
+
+  // type: pop = Rewarded Popup
+  await showAd({
+    type:"pop",
+    ymid:makeYmid(),
+    requestVar:requestVar||"premium_video_popup"
+  });
+
+  return true;
+}
+
+async function runPopupBeforeAction(type,requestVar){
+  if(!popupEnabledFor(type))return true;
+  if(popupBusy)return false;
+
+  popupBusy=true;
+  try{
+    showModal("📢 Please wait","Rewarded Popup প্রস্তুত হচ্ছে...");
+    await showRewardedPopup(requestVar);
+    hideModal();
+    return true;
+  }catch(e){
+    console.warn("Rewarded Popup error:",e);
+    showModal("Popup Unavailable","বিজ্ঞাপনটি সম্পন্ন করা যায়নি। আবার চেষ্টা করো।");
+    return false;
+  }finally{
+    popupBusy=false;
+  }
+}
+
+/* AUTOMATIC IN-APP INTERSTITIAL */
+
 function initAutomaticAds(){
-  if(autoAdStarted||autoAdInitializing)return;
+  if(autoAdStarted||autoAdInitializing||!automaticAdsEnabled())return;
 
-  if(!automaticAdsEnabled()){
-    console.log("Automatic In-App Ads disabled from Admin Settings.");
-    return;
-  }
-
-  if(autoAdRetryTimer){
-    clearTimeout(autoAdRetryTimer);
-    autoAdRetryTimer=null;
-  }
-
+  if(autoAdRetryTimer){clearTimeout(autoAdRetryTimer);autoAdRetryTimer=null}
   autoAdInitializing=true;
 
-  waitForMonetag(30000)
-  .then(()=>{
-    if(!automaticAdsEnabled()){
-      autoAdInitializing=false;
-      return;
-    }
-
-    if(autoAdStarted){
-      autoAdInitializing=false;
-      return;
-    }
+  waitForMonetag(30000).then(()=>{
+    if(!automaticAdsEnabled()||autoAdStarted){autoAdInitializing=false;return}
 
     const showAd=window["show_"+MONETAG_ZONE_ID];
-    const ads=settings.ads||{};
+    const ads=getAdsSettings();
 
-    const firstDelay=Math.max(
-      5,
-      Math.min(3600,Number(ads.autoFirstAdSeconds)||30)
-    );
-
-    const interval=Math.max(
-      10,
-      Math.min(3600,Number(ads.autoIntervalSeconds)||90)
-    );
-
-    /*
-      frequency = সর্বোচ্চ ২০টি বিজ্ঞাপন
-      capping = ২ ঘণ্টার সময়সীমা
-      interval = Admin Panel-এর নির্ধারিত ব্যবধান
-      timeout = Admin Panel-এর First Delay
-
-      Monetag SDK-তে capping-এর একক ঘণ্টা।
-    */
+    const firstDelay=Math.max(5,Math.min(3600,Number(ads.autoFirstAdSeconds)||30));
+    const interval=Math.max(10,Math.min(3600,Number(ads.autoIntervalSeconds)||90));
+    const frequency=Math.max(1,Math.min(20,Number(ads.inAppFrequency)||4));
+    const cappingHours=Math.max(1,Math.min(24,Number(ads.inAppCappingHours)||2));
 
     const inAppSettings={
-      frequency:20,
-      capping:2,
+      frequency:frequency,
+      capping:cappingHours,
       interval:interval,
       timeout:firstDelay,
       everyPage:false
     };
 
     console.log("Starting Monetag In-App Ads:",inAppSettings);
-
-    return Promise.resolve(
-      showAd({
-        type:"inApp",
-        inAppSettings:inAppSettings
-      })
-    );
-  })
-  .then(()=>{
-    if(automaticAdsEnabled()){
-      autoAdStarted=true;
-      autoAdAttempts=0;
-      console.log("Monetag In-App Ads initialized successfully.");
-    }
-
+    return Promise.resolve(showAd({type:"inApp",inAppSettings}));
+  }).then(()=>{
+    if(automaticAdsEnabled()){autoAdStarted=true;autoAdAttempts=0}
     autoAdInitializing=false;
-  })
-  .catch(error=>{
+  }).catch(error=>{
     autoAdInitializing=false;
-
     console.error("Automatic In-App Ads initialization failed:",error);
 
     if(!automaticAdsEnabled()||autoAdStarted)return;
 
     if(autoAdAttempts<3){
       autoAdAttempts++;
-
-      console.log("Retrying Monetag In-App Ads:",autoAdAttempts);
-
       autoAdRetryTimer=setTimeout(()=>{
         autoAdRetryTimer=null;
         initAutomaticAds();
       },15000);
-    }else{
-      console.error("Automatic Ads retry limit reached.");
     }
   });
 }
 
-/* SPECIAL REWARD */
+/* SPECIAL REWARD - আগের নিয়ম অপরিবর্তিত */
 
 async function showRewardedMonetag(requestVar){
   await waitForMonetag();
-
   const ymid=makeYmid();
   const showAd=window["show_"+MONETAG_ZONE_ID];
   const startedAt=Date.now();
 
-  await showAd({
-    type:"end",
-    ymid:ymid,
-    requestVar:requestVar
-  });
+  await showAd({type:"end",ymid:ymid,requestVar:requestVar});
 
-  const elapsed=Date.now()-startedAt;
-  const remaining=MIN_REWARDED_AD_MS-elapsed;
-
-  if(remaining>0){
-    await new Promise(resolve=>setTimeout(resolve,remaining));
-  }
-
+  const remaining=MIN_REWARDED_AD_MS-(Date.now()-startedAt);
+  if(remaining>0)await new Promise(resolve=>setTimeout(resolve,remaining));
   return ymid;
 }
 
-/* VIDEO UNLOCK AD */
+/* VIDEO REWARDED INTERSTITIAL */
 
 async function showVideoUnlockAd(completed,required){
-  await waitForMonetag();
+  const adsEnabled=rewardedInterstitialEnabled();
 
-  const showAd=window["show_"+MONETAG_ZONE_ID];
+  if(adsEnabled){
+    await waitForMonetag();
+    const showAd=window["show_"+MONETAG_ZONE_ID];
 
-  try{
-    const adResult=showAd({
-      type:"end",
-      requestVar:"video_unlock"
-    });
-
-    if(adResult&&typeof adResult.catch==="function"){
-      adResult.catch(error=>{
-        console.warn("Video unlock ad SDK result:",error);
-      });
-    }
-  }catch(e){
-    console.warn("Video unlock ad launch error:",e);
+    try{
+      const adResult=showAd({type:"end",ymid:makeYmid(),requestVar:"video_unlock"});
+      if(adResult&&typeof adResult.catch==="function"){
+        adResult.catch(error=>console.warn("Video rewarded ad SDK result:",error));
+      }
+    }catch(e){console.warn("Video rewarded ad launch error:",e)}
   }
 
+  // আগের মতো ১০ সেকেন্ডের কাউন্টডাউন।
   for(let remaining=10;remaining>0;remaining--){
     showModal(
       "📺 Video Unlock",
       `বিজ্ঞাপন দেখার সময় চলছে।\n\n📊 Ad Progress: ${completed} / ${required}\n\n⏳ বাকি সময়: ${remaining} সেকেন্ড`
     );
-
     await new Promise(resolve=>setTimeout(resolve,1000));
   }
 }
@@ -491,34 +412,23 @@ async function loadSettings(){
   try{
     const res=await fetch(API+"/api/settings");
     const data=await res.json();
-
     if(!data.success)return;
 
     settings=data.settings||{};
 
-    document.getElementById("appName").textContent=
-      settings.appName||"Premium Video";
-
-    document.getElementById("promoName").textContent=
-      settings.promotionalChannel?.name||"Promotional Channel";
+    document.getElementById("appName").textContent=settings.appName||"Premium Video";
+    document.getElementById("promoName").textContent=settings.promotionalChannel?.name||"Promotional Channel";
 
     const reward=settings.reward||{};
     const required=Number(reward.adsRequired)||50;
 
-    document.getElementById("rewardHeading").textContent=
-      `${required} Ads Reward`;
-
+    document.getElementById("rewardHeading").textContent=`${required} Ads Reward`;
     document.getElementById("rewardDescription").textContent=
       reward.unlockMessage||`Watch ${required} ads to unlock your reward URL.`;
 
     renderCategories();
-
-    // Settings পাওয়ার পর Automatic In-App Ads initialize হবে।
     initAutomaticAds();
-
-  }catch(e){
-    console.error("Settings error",e);
-  }
+  }catch(e){console.error("Settings error",e)}
 }
 
 /* CATEGORIES */
@@ -526,7 +436,6 @@ async function loadSettings(){
 function renderCategories(){
   const box=document.getElementById("categories");
   const categories=(settings.categories||[]).filter(c=>c.enabled!==false);
-
   box.innerHTML="";
 
   const all=document.createElement("button");
@@ -543,13 +452,7 @@ function renderCategories(){
     box.appendChild(btn);
   });
 }
-
-function selectCategory(id){
-  currentCategory=id;
-  currentPage=1;
-  renderCategories();
-  loadVideos();
-}
+function selectCategory(id){currentCategory=id;currentPage=1;renderCategories();loadVideos()}
 
 /* LOAD VIDEOS */
 
@@ -558,20 +461,15 @@ async function loadVideos(){
   list.innerHTML='<div class="loading">Loading videos...</div>';
 
   try{
-    const url=API+"/api/videos?page="+currentPage+
-      "&category="+encodeURIComponent(currentCategory);
-
+    const url=API+"/api/videos?page="+currentPage+"&category="+encodeURIComponent(currentCategory);
     const res=await fetch(url);
     const data=await res.json();
-
     if(!data.success)throw new Error("Unable to load videos");
 
     videos=data.videos||[];
     totalPages=data.pagination?.totalPages||1;
-
     renderVideos();
     updatePagination(data.pagination);
-
   }catch(e){
     list.innerHTML='<div class="empty">ভিডিও লোড করা যায়নি। আবার চেষ্টা করো।</div>';
     console.error(e);
@@ -581,7 +479,6 @@ async function loadVideos(){
 function getVideoAdsRequired(video){
   const value=Number(video.adsRequired);
   if(Number.isFinite(value)&&value>=1)return value;
-
   const defaultValue=Number(settings.ads?.adsPerVideo);
   return Number.isFinite(defaultValue)&&defaultValue>=1?defaultValue:2;
 }
@@ -618,13 +515,11 @@ function renderVideos(){
 
     const tag=document.createElement("span");
     tag.className="tag";
-
     const category=(settings.categories||[]).find(c=>c.id===video.categoryId);
     tag.textContent=category?.name||"Video";
 
     const ads=document.createElement("span");
     ads.textContent=getVideoAdsRequired(video)+" Ads Required";
-
     meta.append(tag,ads);
 
     const actions=document.createElement("div");
@@ -649,54 +544,38 @@ function renderVideos(){
 
 function updatePagination(p){
   totalPages=p?.totalPages||1;
-
-  document.getElementById("pageNumber").textContent=
-    `${currentPage} / ${totalPages}`;
-
+  document.getElementById("pageNumber").textContent=`${currentPage} / ${totalPages}`;
   document.getElementById("prevBtn").disabled=currentPage<=1;
   document.getElementById("nextBtn").disabled=currentPage>=totalPages;
 }
-
 function changePage(direction){
   const next=currentPage+direction;
   if(next<1||next>totalPages)return;
-
-  currentPage=next;
-  loadVideos();
-  window.scrollTo({top:0,behavior:"smooth"});
+  currentPage=next;loadVideos();window.scrollTo({top:0,behavior:"smooth"});
 }
 
 /* PROMOTIONAL CHANNEL */
 
 function joinChannel(){
   const url=settings.promotionalChannel?.url;
-
-  if(!url){
-    showModal("Promotional Channel","চ্যানেল লিংক এখনো যোগ করা হয়নি।");
-    return;
-  }
-
+  if(!url){showModal("Promotional Channel","চ্যানেল লিংক এখনো যোগ করা হয়নি।");return}
   openExternal(url);
 }
 
 /* REFERRAL */
 
-function openReferral(){
+function showReferralPage(){
   const user=tg?.initDataUnsafe?.user;
-
   if(!user){
     showModal("Referral","Referral Link তৈরি করতে Telegram Mini App থেকে প্রবেশ করো।");
     return;
   }
 
   referralUrl=`https://t.me/${BOT_USERNAME}?start=ref_${user.id}`;
-
   const referral=settings.referral||{};
-
   const title=referral.title||"🎁 Referral Program";
   const message=referral.message||
     "বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো। তারা তোমার লিংক দিয়ে প্রথমবার Start করলেই তুমি Credit পাবে।";
-
   const instructions=referral.instructions||
     "১. Referral Link কপি করো।\n২. বন্ধুদের সঙ্গে শেয়ার করো।\n৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।";
 
@@ -709,41 +588,37 @@ function openReferral(){
   );
 }
 
+async function openReferral(){
+  if(popupEnabledFor("referral")){
+    const ok=await runPopupBeforeAction("referral","referral_popup");
+    if(!ok)return;
+  }
+  showReferralPage();
+}
+
 /* UNLOCK VIDEO WITH CREDIT */
 
 async function unlockVideoWithCredit(videoId){
-  if(unlockBusy||videoAdBusy||rewardBusy)return;
+  if(unlockBusy||videoAdBusy||rewardBusy||popupBusy)return;
 
   if(!tg?.initData){
     showModal("Telegram Required","Credit ব্যবহার করতে Telegram Mini App থেকে প্রবেশ করো।");
     return;
   }
-
-  if(!videoId){
-    showModal("Unlock Error","ভিডিওর ID পাওয়া যায়নি।");
-    return;
-  }
-
+  if(!videoId){showModal("Unlock Error","ভিডিওর ID পাওয়া যায়নি।");return}
   if(creditBalance<1){
-    showModal(
-      "Not Enough Credits",
-      "তোমার পর্যাপ্ত Credit নেই।\n\nবন্ধুদের Referral Link শেয়ার করে Credit সংগ্রহ করো অথবা Watch Ads দিয়ে ভিডিও Unlock করো।"
-    );
+    showModal("Not Enough Credits","তোমার পর্যাপ্ত Credit নেই।\n\nবন্ধুদের Referral Link শেয়ার করে Credit সংগ্রহ করো অথবা Watch Ads দিয়ে ভিডিও Unlock করো।");
     return;
   }
 
   const video=videos.find(v=>String(v.id)===String(videoId))||{};
-
   unlockBusy=true;
   setVideoButtonsDisabled(true,"⏳ Unlocking...");
 
   try{
     const res=await fetch(API+"/api/credits/unlock",{
-      method:"POST",
-      headers,
-      body:JSON.stringify({videoId:String(videoId)})
+      method:"POST",headers,body:JSON.stringify({videoId:String(videoId)})
     });
-
     const data=await res.json();
 
     if(!res.ok||!data.success){
@@ -751,19 +626,13 @@ async function unlockVideoWithCredit(videoId){
       throw new Error(data.error||"Credit দিয়ে ভিডিও Unlock করা যায়নি।");
     }
 
-    if(data.credits!==undefined){
-      updateCreditBalance(data.credits);
-    }else{
-      await loadCreditBalance();
-    }
+    if(data.credits!==undefined)updateCreditBalance(data.credits);
+    else await loadCreditBalance();
 
-    if(!data.videoUrl){
-      throw new Error("ভিডিওর URL পাওয়া যায়নি। Admin Panel-এ Video URL পরীক্ষা করো।");
-    }
+    if(!data.videoUrl)throw new Error("ভিডিওর URL পাওয়া যায়নি। Admin Panel-এ Video URL পরীক্ষা করো।");
 
     hideModal();
     openVideoPlayer(data.videoUrl,video.title||"Premium Video");
-
   }catch(e){
     console.error("Credit unlock error:",e);
     showModal("Credit Unlock Failed",e.message||"ভিডিও Unlock করা যায়নি।");
@@ -777,10 +646,7 @@ async function unlockVideoWithCredit(videoId){
 /* VIDEO PLAYER */
 
 function openVideoPlayer(url,title){
-  if(!url){
-    showModal("Video Error","ভিডিওর URL পাওয়া যায়নি।");
-    return;
-  }
+  if(!url){showModal("Video Error","ভিডিওর URL পাওয়া যায়নি।");return}
 
   const player=document.getElementById("videoPlayer");
   const screen=document.getElementById("playerScreen");
@@ -789,13 +655,11 @@ function openVideoPlayer(url,title){
   currentPlayerUrl=url;
   error.style.display="none";
   error.textContent="";
-
   document.getElementById("playerTitle").textContent=title||"Premium Video";
 
   player.pause();
   player.removeAttribute("src");
   player.load();
-
   player.src=url;
   player.load();
 
@@ -808,25 +672,20 @@ function openVideoPlayer(url,title){
   }
 
   player.play().catch(()=>{});
-
   window.scrollTo(0,0);
 }
 
 function closeVideoPlayer(){
   const player=document.getElementById("videoPlayer");
-
   player.pause();
   player.removeAttribute("src");
   player.load();
-
   currentPlayerUrl="";
 
   document.getElementById("playerScreen").style.display="none";
   document.getElementById("homePage").style.display="block";
 
-  if(tg?.BackButton){
-    tg.BackButton.hide();
-  }
+  if(tg?.BackButton)tg.BackButton.hide();
 }
 
 document.getElementById("videoPlayer").addEventListener("error",()=>{
@@ -835,37 +694,43 @@ document.getElementById("videoPlayer").addEventListener("error",()=>{
   error.textContent="ভিডিওটি চালানো যাচ্ছে না। Admin Panel-এ Video URL পরীক্ষা করো। সরাসরি MP4 বা সমর্থিত ভিডিও URL ব্যবহার করো।";
 });
 
-/* PLAYER BASIC PROTECTION */
-
-document.getElementById("videoPlayer").addEventListener("contextmenu",e=>{
-  e.preventDefault();
-});
-
+document.getElementById("videoPlayer").addEventListener("contextmenu",e=>e.preventDefault());
 document.addEventListener("contextmenu",e=>{
-  if(document.getElementById("playerScreen").style.display==="block"){
-    e.preventDefault();
-  }
+  if(document.getElementById("playerScreen").style.display==="block")e.preventDefault();
 });
 
 /* VIDEO AD UNLOCK */
 
 async function startVideoAdsUnlock(videoId){
-  if(videoAdBusy||unlockBusy||rewardBusy)return;
+  if(videoAdBusy||unlockBusy||rewardBusy||popupBusy)return;
 
   if(!tg?.initData){
     showModal("Telegram Required","ভিডিও আনলক করতে Telegram Mini App থেকে প্রবেশ করো।");
     return;
   }
-
-  if(!videoId){
-    showModal("Unlock Error","ভিডিওর ID পাওয়া যায়নি।");
-    return;
-  }
+  if(!videoId){showModal("Unlock Error","ভিডিওর ID পাওয়া যায়নি।");return}
 
   if(settings.ads?.network&&settings.ads.network!=="monetag"){
     showModal("Ads Unavailable","বর্তমানে Monetag বিজ্ঞাপন চালু নেই।");
     return;
   }
+
+  // Rewarded Popup চালু থাকলে আগে Popup; এরপর পুরোনো ভিডিও Unlock flow।
+  if(popupEnabledFor("video")){
+    const ok=await runPopupBeforeAction("video","video_unlock_popup");
+    if(!ok)return;
+  }
+
+  if(!rewardedInterstitialEnabled()){
+    showModal("Video Ads Disabled","Admin Panel থেকে Video Rewarded Interstitial বন্ধ রাখা হয়েছে।");
+    return;
+  }
+
+  await continueVideoAdsUnlock(videoId);
+}
+
+async function continueVideoAdsUnlock(videoId){
+  if(videoAdBusy||unlockBusy||rewardBusy)return;
 
   videoAdBusy=true;
   setVideoButtonsDisabled(true,"⏳ Preparing...");
@@ -874,7 +739,7 @@ async function startVideoAdsUnlock(videoId){
     await waitForMonetag();
 
     let completed=0;
-    let video=videos.find(v=>String(v.id)===String(videoId))||{};
+    const video=videos.find(v=>String(v.id)===String(videoId))||{};
     let required=getVideoAdsRequired(video);
 
     while(completed<required){
@@ -904,7 +769,6 @@ async function startVideoAdsUnlock(videoId){
         if(!countData.videoUrl){
           throw new Error("ভিডিওর লিংক পাওয়া যায়নি। Admin Panel-এ Video URL পরীক্ষা করো।");
         }
-
         hideModal();
         openVideoPlayer(countData.videoUrl,video.title||"Premium Video");
         return;
@@ -914,10 +778,8 @@ async function startVideoAdsUnlock(videoId){
         "✅ Ad Counted",
         `একটি বিজ্ঞাপন গণনা হয়েছে।\n\n📊 Ad Progress: ${completed} / ${required}\n\nপরবর্তী বিজ্ঞাপন প্রস্তুত হচ্ছে।`
       );
-
       await new Promise(resolve=>setTimeout(resolve,700));
     }
-
   }catch(e){
     console.error("Video ad unlock error:",e);
     showModal("Video Unlock Failed",e.message||"ভিডিও আনলক করা যায়নি।");
@@ -930,11 +792,8 @@ async function startVideoAdsUnlock(videoId){
 function setVideoButtonsDisabled(disabled,text){
   document.querySelectorAll(".video-actions button").forEach(button=>{
     button.disabled=disabled;
-
     if(disabled&&text){
-      if(!button.dataset.originalText){
-        button.dataset.originalText=button.textContent;
-      }
+      if(!button.dataset.originalText)button.dataset.originalText=button.textContent;
       button.textContent=text;
     }else if(!disabled&&button.dataset.originalText){
       button.textContent=button.dataset.originalText;
@@ -943,7 +802,7 @@ function setVideoButtonsDisabled(disabled,text){
   });
 }
 
-/* SPECIAL REWARD STATUS */
+/* SPECIAL REWARD STATUS - আগের নিয়ম অপরিবর্তিত */
 
 function updateRewardUI(data){
   const completed=Number(data.completed)||0;
@@ -951,9 +810,7 @@ function updateRewardUI(data){
   const percent=Math.min(100,Math.floor(completed/required*100));
 
   document.getElementById("rewardBar").style.width=percent+"%";
-  document.getElementById("rewardCount").textContent=
-    `${completed} / ${required} Ads`;
-
+  document.getElementById("rewardCount").textContent=`${completed} / ${required} Ads`;
   document.getElementById("rewardPercent").textContent=percent+"%";
 
   const button=document.getElementById("rewardButton");
@@ -963,7 +820,6 @@ function updateRewardUI(data){
     rewardUrl=data.unlockUrl;
     button.style.display="none";
     result.style.display="block";
-
     document.getElementById("rewardMessage").textContent=
       data.unlockMessage||"অভিনন্দন! তোমার Unlock Link প্রস্তুত।";
   }else{
@@ -977,64 +833,44 @@ function updateRewardUI(data){
 
 async function loadRewardStatus(){
   if(!tg?.initData)return null;
-
   try{
     const res=await fetch(API+"/api/reward/status",{headers});
     const data=await res.json();
-
-    if(data.success){
-      updateRewardUI(data);
-      return data;
-    }
-
+    if(data.success){updateRewardUI(data);return data}
     return null;
-  }catch(e){
-    console.error("Reward status error",e);
-    return null;
-  }
+  }catch(e){console.error("Reward status error",e);return null}
 }
-
-/* SPECIAL REWARD AD */
 
 async function verifyRewardAd(ymid){
   const res=await fetch(API+"/api/reward/verify",{
-    method:"POST",
-    headers,
-    body:JSON.stringify({ymid:String(ymid)})
+    method:"POST",headers,body:JSON.stringify({ymid:String(ymid)})
   });
-
   const data=await res.json();
-
-  if(!res.ok||!data.success){
-    throw new Error(data.error||"Reward verification failed");
-  }
-
+  if(!res.ok||!data.success)throw new Error(data.error||"Reward verification failed");
   updateRewardUI(data);
   return data;
 }
 
 async function watchRewardAd(){
-  if(rewardBusy||videoAdBusy||unlockBusy)return;
+  if(rewardBusy||videoAdBusy||unlockBusy||popupBusy)return;
 
   if(!tg?.initData){
     showModal("Telegram Required","Reward Ads দেখতে Telegram Mini App থেকে প্রবেশ করো।");
     return;
   }
-
   if(settings.reward?.enabled===false){
     showModal("Reward Disabled","Admin Special Reward বন্ধ রেখেছেন।");
     return;
   }
 
   rewardBusy=true;
-
   const button=document.getElementById("rewardButton");
   button.disabled=true;
   button.textContent="⏳ Showing Ad...";
 
   try{
+    // Special Reward-এর জন্য আগের Rewarded Interstitial flow-ই থাকবে।
     const ymid=await showRewardedMonetag("special_reward");
-
     button.textContent="⏳ Verifying Ad...";
 
     const result=await verifyRewardAd(ymid);
@@ -1042,19 +878,15 @@ async function watchRewardAd(){
     if(result.unlocked){
       showModal("🎉 Reward Unlocked!",result.unlockMessage||"তোমার Reward Link প্রস্তুত।");
     }else{
-      showModal(
-        "✅ Ad Completed",
-        `একটি বিজ্ঞাপন সফলভাবে সম্পন্ন হয়েছে।\n\nProgress: ${Number(result.completed)||0} / ${Number(result.required)||50}`
-      );
+      showModal("✅ Ad Completed",
+        `একটি বিজ্ঞাপন সফলভাবে সম্পন্ন হয়েছে।\n\nProgress: ${Number(result.completed)||0} / ${Number(result.required)||50}`);
     }
-
   }catch(e){
     console.error("Reward error:",e);
     showModal("Reward Error",e.message||"বিজ্ঞাপন যাচাই করা যায়নি।");
   }finally{
     rewardBusy=false;
     await loadRewardStatus();
-
     if(!rewardUrl){
       button.disabled=settings.reward?.enabled===false;
       button.textContent="▶ Watch Ads";
@@ -1062,19 +894,13 @@ async function watchRewardAd(){
   }
 }
 
-function openRewardUrl(){
-  if(rewardUrl)openExternal(rewardUrl);
-}
-
-async function copyRewardUrl(){
-  if(rewardUrl)await copyText(rewardUrl);
-}
+function openRewardUrl(){if(rewardUrl)openExternal(rewardUrl)}
+async function copyRewardUrl(){if(rewardUrl)await copyText(rewardUrl)}
 
 /* OPEN LINKS */
 
 function openExternal(url){
   if(!url)return;
-
   if(tg?.openTelegramLink&&url.startsWith("https://t.me/")){
     tg.openTelegramLink(url);
   }else if(tg?.openLink){
@@ -1103,19 +929,13 @@ async function init(){
       await fetch(API+"/api/me",{headers});
       await loadCreditBalance();
       await loadRewardStatus();
-    }catch(e){
-      console.error("User registration error",e);
-    }
+    }catch(e){console.error("User registration error",e)}
   }
 
-  // SDK দেরিতে লোড হলে আরেকবার চেষ্টা করবে।
-  if(!autoAdStarted){
-    initAutomaticAds();
-  }
+  if(!autoAdStarted)initAutomaticAds();
 }
 
 init();
 </script>
-
 </body>
 </html>
