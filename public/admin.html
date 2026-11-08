@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -37,6 +38,8 @@ button:disabled{opacity:.5}
 #status,#loginStatus,#videoStatus,#broadcastStatus{font-size:13px;margin-top:10px;color:#ffb47c;white-space:pre-wrap}
 hr{border:0;border-top:1px solid #382626;margin:18px 0}
 .note{font-size:12px;color:#aaa;line-height:1.6;margin-top:-5px;margin-bottom:12px}
+.setting-group{background:#100e0e;border:1px solid #382626;border-radius:10px;padding:13px;margin:12px 0}
+.setting-group h4{margin:0 0 12px;font-size:14px;color:#ffad78}
 @media(max-width:500px){.video{flex-wrap:wrap}.video-actions{width:100%}}
 </style>
 </head>
@@ -99,7 +102,7 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 <label>Unlock Section Message</label>
 <textarea id="unlockMessage" maxlength="500" placeholder="Write an attractive message for users..."></textarea>
 
-<p class="note">শুধু Special Reward বাটন থেকে দেখা Reward বিজ্ঞাপন এখানে গণনা হবে। Automatic বিজ্ঞাপন এবং ভিডিও Unlock-এর বিজ্ঞাপন এই Reward-এ যোগ হবে না।</p>
+<p class="note">শুধু Special Reward বাটন থেকে দেখা Reward বিজ্ঞাপন এখানে গণনা হবে। Automatic বিজ্ঞাপন এবং ভিডিও Unlock-এর বিজ্ঞাপন এই Reward-এ যোগ হবে না। এই Reward-এর আগের নিয়ম অপরিবর্তিত থাকবে।</p>
 
 <hr>
 
@@ -137,6 +140,9 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 
 <p class="note">Monetag Zone ID: 12187766</p>
 
+<div class="setting-group">
+<h4>1️⃣ In-App Interstitial</h4>
+
 <label>Automatic In-App Ads</label>
 <select id="automaticAdsEnabled">
 <option value="true">Enabled</option>
@@ -149,10 +155,59 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 <label>Automatic Ad Interval (Seconds)</label>
 <input id="autoIntervalSeconds" type="number" min="10" max="3600" value="90">
 
-<label>Default Ads Per Video</label>
+<label>Maximum Ads Per Capping Window (Frequency)</label>
+<input id="inAppFrequency" type="number" min="1" max="100" value="4">
+
+<label>Capping Window (Hours)</label>
+<input id="inAppCappingHours" type="number" min="1" max="24" value="2">
+
+<p class="note">এই সেটিংস শুধু Automatic In-App Interstitial বিজ্ঞাপনের জন্য। এগুলো Video Unlock বা Special Reward-এর বিজ্ঞাপনে যোগ হবে না।</p>
+</div>
+
+<div class="setting-group">
+<h4>2️⃣ Rewarded Interstitial — Video Unlock</h4>
+
+<label>Video Rewarded Interstitial</label>
+<select id="rewardedInterstitialEnabled">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+
+<label>Default Ads Required Per Video</label>
 <input id="defaultAds" type="number" min="1" max="100" value="2">
 
-<p class="note">প্রতিটি ভিডিও দেখার সময় প্রতিবার নির্ধারিত সংখ্যক Monetag Rewarded Ads সম্পন্ন করতে হবে। Automatic বিজ্ঞাপন ভিডিও বা Special Reward-এর হিসাবে যোগ হবে না। Credit দিয়ে ভিডিও Unlock করা যাবে না।</p>
+<p class="note">ভিডিও Unlock করার সময় নির্ধারিত সংখ্যক Rewarded Interstitial বিজ্ঞাপন দেখানো হবে। আগের ১০ সেকেন্ডের Countdown শেষ হলে বিজ্ঞাপন গণনার নিয়ম থাকবে। প্রতিটি ভিডিওর আলাদা Ads Required সেটিংস থাকলে সেটিই কার্যকর হবে।</p>
+</div>
+
+<div class="setting-group">
+<h4>3️⃣ Rewarded Popup</h4>
+
+<label>Rewarded Popup</label>
+<select id="rewardedPopupEnabled">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+
+<label>Show Popup Before Referral Page</label>
+<select id="popupOnReferral">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+
+<label>Show Popup Before Video Unlock</label>
+<select id="popupOnVideoUnlock">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+
+<label>Show Popup for Bonus Offer</label>
+<select id="popupOnBonus">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+
+<p class="note">Referral বাটনে ক্লিক করলে Popup আগে আসবে, এরপর Referral Page খুলবে। Video Unlock বাটনে ক্লিক করলে Popup আগে আসবে, এরপর আগের Video Unlock প্রক্রিয়া চলবে। Popup নিজে থেকে কোনো Credit, Video Unlock বা Special Reward দেবে না।</p>
+</div>
 
 <button onclick="saveSettings()">Save All Settings</button>
 </div>
@@ -226,24 +281,14 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 const API = "";
 let key = sessionStorage.getItem("pv_admin_key") || "";
 
-/* ==================================
-   DYNAMIC VIDEO CATEGORY SYSTEM
-================================== */
-
 function populateVideoCategories(categories, selectedValue="") {
  const select = document.getElementById("videoCategory");
-
  const previousValue = selectedValue || select.value;
 
  select.innerHTML = "";
 
  let validCategories = Array.isArray(categories)
-  ? categories.filter(c =>
-      c &&
-      c.id &&
-      c.id !== "all" &&
-      c.enabled !== false
-    )
+  ? categories.filter(c => c && c.id && c.id !== "all" && c.enabled !== false)
   : [];
 
  if(!validCategories.length) {
@@ -260,8 +305,6 @@ function populateVideoCategories(categories, selectedValue="") {
   select.appendChild(option);
  });
 
- // পুরোনো ভিডিওর ক্যাটাগরি তালিকায় না থাকলেও
- // Edit করার সময় সেটি হারিয়ে যাবে না।
  if(previousValue && !validCategories.some(c => String(c.id) === String(previousValue))) {
   const option = document.createElement("option");
   option.value = String(previousValue);
@@ -269,13 +312,8 @@ function populateVideoCategories(categories, selectedValue="") {
   select.appendChild(option);
  }
 
- if(previousValue) {
-  select.value = String(previousValue);
- }
-
- if(!select.value && select.options.length) {
-  select.selectedIndex = 0;
- }
+ if(previousValue) select.value = String(previousValue);
+ if(!select.value && select.options.length) select.selectedIndex = 0;
 }
 
 function authHeaders(){
@@ -293,10 +331,7 @@ async function api(path,options={}){
 
  const data=await response.json().catch(()=>({}));
 
- if(!response.ok) {
-  throw new Error(data.error||"Request failed");
- }
-
+ if(!response.ok) throw new Error(data.error||"Request failed");
  return data;
 }
 
@@ -316,14 +351,10 @@ async function login(){
 
  try{
   await api("/api/admin/dashboard");
-
   sessionStorage.setItem("pv_admin_key",key);
-
   document.getElementById("login").style.display="none";
   document.getElementById("app").style.display="block";
-
   await loadAll();
-
  }catch(e){
   document.getElementById("loginStatus").textContent=e.message;
   key="";
@@ -332,11 +363,7 @@ async function login(){
 
 async function loadAll(){
  try{
-  await Promise.all([
-   loadDashboard(),
-   loadSettings(),
-   loadVideos()
-  ]);
+  await Promise.all([loadDashboard(),loadSettings(),loadVideos()]);
  }catch(e){
   document.getElementById("status").textContent=e.message;
  }
@@ -344,7 +371,6 @@ async function loadAll(){
 
 async function loadDashboard(){
  const d=await api("/api/admin/dashboard");
-
  document.getElementById("totalUsers").textContent=d.totalUsers||0;
  document.getElementById("totalVideos").textContent=d.totalVideos||0;
  document.getElementById("totalReferrals").textContent=d.totalReferrals||0;
@@ -353,15 +379,12 @@ async function loadDashboard(){
 
 async function loadSettings(){
  const d=await api("/api/admin/settings");
-
- if(!d.success) {
-  throw new Error("Could not load settings");
- }
+ if(!d.success) throw new Error("Could not load settings");
 
  const s=d.settings||{};
+ const ads=s.ads||{};
 
  document.getElementById("appName").value=s.appName||"Premium Video";
-
  document.getElementById("promoName").value=s.promotionalChannel?.name||"";
  document.getElementById("promoUrl").value=s.promotionalChannel?.url||"";
 
@@ -373,31 +396,31 @@ async function loadSettings(){
  document.getElementById("referralReward").value=s.referral?.rewardPerReferral??1;
  document.getElementById("referralEnabled").value=String(s.referral?.enabled!==false);
  document.getElementById("referralTitle").value=s.referral?.title||"🎁 Referral Program";
-
  document.getElementById("referralMessage").value=s.referral?.message||"বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো। তারা তোমার লিংক দিয়ে প্রথমবার Start করলেই তুমি Credit পাবে।";
-
  document.getElementById("referralInstructions").value=s.referral?.instructions||"১. Referral Link কপি করো।\n২. বন্ধুদের সঙ্গে শেয়ার করো।\n৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।";
 
  document.getElementById("monetagZoneId").value="12187766";
 
- document.getElementById("automaticAdsEnabled").value=String(s.ads?.automaticAdsEnabled!==false);
+ document.getElementById("automaticAdsEnabled").value=String(ads.automaticAdsEnabled!==false);
+ document.getElementById("autoFirstAdSeconds").value=ads.autoFirstAdSeconds??30;
+ document.getElementById("autoIntervalSeconds").value=ads.autoIntervalSeconds??90;
+ document.getElementById("inAppFrequency").value=ads.inAppFrequency??4;
+ document.getElementById("inAppCappingHours").value=ads.inAppCappingHours??2;
 
- document.getElementById("autoFirstAdSeconds").value=s.ads?.autoFirstAdSeconds??30;
+ document.getElementById("rewardedInterstitialEnabled").value=String(ads.rewardedInterstitialEnabled!==false);
+ document.getElementById("defaultAds").value=ads.adsPerVideo??2;
 
- document.getElementById("autoIntervalSeconds").value=s.ads?.autoIntervalSeconds??90;
+ document.getElementById("rewardedPopupEnabled").value=String(ads.rewardedPopupEnabled!==false);
+ document.getElementById("popupOnReferral").value=String(ads.popupOnReferral!==false);
+ document.getElementById("popupOnVideoUnlock").value=String(ads.popupOnVideoUnlock!==false);
+ document.getElementById("popupOnBonus").value=String(ads.popupOnBonus===true);
 
- document.getElementById("defaultAds").value=s.ads?.adsPerVideo??2;
-
- // Firebase/API থেকে পাওয়া ক্যাটাগরি Textarea-তে দেখাবে
- const categories = Array.isArray(s.categories) ? s.categories : [];
-
+ const categories=Array.isArray(s.categories)?s.categories:[];
  document.getElementById("categories").value=categories
-  .filter(c=>c && c.id!=="all")
+  .filter(c=>c&&c.id!=="all")
   .map(c=>`${c.id} | ${c.name}`)
   .join("\n");
 
- // সবচেয়ে গুরুত্বপূর্ণ পরিবর্তন:
- // Saved categories সরাসরি Video Category dropdown-এ যোগ হবে।
  populateVideoCategories(categories);
 }
 
@@ -407,70 +430,55 @@ async function saveSettings(){
  const defaultAds=Number(document.getElementById("defaultAds").value);
  const firstDelay=Number(document.getElementById("autoFirstAdSeconds").value);
  const interval=Number(document.getElementById("autoIntervalSeconds").value);
+ const frequency=Number(document.getElementById("inAppFrequency").value);
+ const capping=Number(document.getElementById("inAppCappingHours").value);
 
  const unlockUrl=document.getElementById("unlockUrl").value.trim();
  const unlockMessage=document.getElementById("unlockMessage").value.trim();
-
  const referralTitle=document.getElementById("referralTitle").value.trim();
  const referralMessage=document.getElementById("referralMessage").value.trim();
  const referralInstructions=document.getElementById("referralInstructions").value.trim();
 
  if(!Number.isInteger(requiredAds)||requiredAds<1||requiredAds>1000){
-  alert("Required Ads must be between 1 and 1000");
-  return;
+  alert("Required Ads must be between 1 and 1000");return;
  }
-
  if(!Number.isFinite(referralReward)||referralReward<0||referralReward>1000000){
-  alert("Invalid referral reward");
-  return;
+  alert("Invalid referral reward");return;
  }
-
  if(!Number.isInteger(defaultAds)||defaultAds<1||defaultAds>100){
-  alert("Default Ads must be between 1 and 100");
-  return;
+  alert("Default Ads must be between 1 and 100");return;
  }
-
  if(!Number.isInteger(firstDelay)||firstDelay<5||firstDelay>3600){
-  alert("First delay must be between 5 and 3600 seconds");
-  return;
+  alert("First delay must be between 5 and 3600 seconds");return;
  }
-
  if(!Number.isInteger(interval)||interval<10||interval>3600){
-  alert("Ad interval must be between 10 and 3600 seconds");
-  return;
+  alert("Ad interval must be between 10 and 3600 seconds");return;
  }
-
+ if(!Number.isInteger(frequency)||frequency<1||frequency>100){
+  alert("Frequency must be between 1 and 100");return;
+ }
+ if(!Number.isInteger(capping)||capping<1||capping>24){
+  alert("Capping must be between 1 and 24 hours");return;
+ }
  if(unlockMessage.length>500){
-  alert("Unlock Message maximum 500 characters");
-  return;
+  alert("Unlock Message maximum 500 characters");return;
  }
-
  if(referralTitle.length>150){
-  alert("Referral Title maximum 150 characters");
-  return;
+  alert("Referral Title maximum 150 characters");return;
  }
-
  if(referralMessage.length>2000){
-  alert("Referral Message maximum 2000 characters");
-  return;
+  alert("Referral Message maximum 2000 characters");return;
  }
-
  if(referralInstructions.length>2000){
-  alert("Referral Instructions maximum 2000 characters");
-  return;
+  alert("Referral Instructions maximum 2000 characters");return;
  }
 
  if(unlockUrl){
   try{
    const parsed=new URL(unlockUrl);
-
-   if(parsed.protocol!=="https:"&&parsed.protocol!=="http:"){
-    throw new Error();
-   }
-
+   if(parsed.protocol!=="https:"&&parsed.protocol!=="http:") throw new Error();
   }catch(e){
-   alert("Please enter a valid Unlock URL");
-   return;
+   alert("Please enter a valid Unlock URL");return;
   }
  }
 
@@ -503,18 +511,26 @@ async function saveSettings(){
     ads:{
      network:"monetag",
      monetagZoneId:"12187766",
+
      automaticAdsEnabled:document.getElementById("automaticAdsEnabled").value==="true",
      autoFirstAdSeconds:firstDelay,
      autoIntervalSeconds:interval,
-     adsPerVideo:defaultAds
+     inAppFrequency:frequency,
+     inAppCappingHours:capping,
+
+     rewardedInterstitialEnabled:document.getElementById("rewardedInterstitialEnabled").value==="true",
+     adsPerVideo:defaultAds,
+
+     rewardedPopupEnabled:document.getElementById("rewardedPopupEnabled").value==="true",
+     popupOnReferral:document.getElementById("popupOnReferral").value==="true",
+     popupOnVideoUnlock:document.getElementById("popupOnVideoUnlock").value==="true",
+     popupOnBonus:document.getElementById("popupOnBonus").value==="true"
     }
    })
   });
 
   await loadSettings();
-
   alert("Settings saved successfully!");
-
  }catch(e){
   alert(e.message);
  }
@@ -523,57 +539,32 @@ async function saveSettings(){
 async function saveCategories(){
  try{
   const lines=document.getElementById("categories").value.split("\n");
-
-  const categories=[
-   {id:"all",name:"All Videos",enabled:true}
-  ];
+  const categories=[{id:"all",name:"All Videos",enabled:true}];
 
   lines.forEach(line=>{
    if(!line.trim()) return;
-
    const parts=line.split("|");
-
-   if(parts.length<2){
-    throw new Error("Use id | Category Name format");
-   }
+   if(parts.length<2) throw new Error("Use id | Category Name format");
 
    const id=parts[0].trim().toLowerCase().replace(/[^a-z0-9_-]/g,"");
-
    const name=parts.slice(1).join("|").trim();
 
-   if(!id||!name){
-    throw new Error("Invalid category");
-   }
+   if(!id||!name) throw new Error("Invalid category");
+   if(id==="all") throw new Error("The category ID 'all' is reserved");
+   if(categories.some(c=>c.id===id)) throw new Error("Duplicate category ID: "+id);
 
-   if(id==="all"){
-    throw new Error("The category ID 'all' is reserved");
-   }
-
-   if(categories.some(c=>c.id===id)){
-    throw new Error("Duplicate category ID: "+id);
-   }
-
-   categories.push({
-    id,
-    name,
-    enabled:true
-   });
+   categories.push({id,name,enabled:true});
   });
 
-  if(categories.length===1){
-   throw new Error("কমপক্ষে একটি Category যোগ করো।");
-  }
+  if(categories.length===1) throw new Error("কমপক্ষে একটি Category যোগ করো।");
 
   await api("/api/admin/settings",{
    method:"PUT",
    body:JSON.stringify({categories})
   });
 
-  // Save হওয়ার পর আবার Server থেকে categories load হবে
   await loadSettings();
-
   alert("Categories saved! Video dropdown updated.");
-
  }catch(e){
   alert(e.message);
  }
@@ -581,17 +572,14 @@ async function saveCategories(){
 
 async function loadVideos(){
  const box=document.getElementById("videoList");
-
  box.textContent="Loading videos...";
 
  try{
   const d=await api("/api/admin/videos");
-
   box.innerHTML="";
 
   if(!d.videos||!d.videos.length){
-   box.textContent="No videos found";
-   return;
+   box.textContent="No videos found";return;
   }
 
   d.videos.forEach(v=>{
@@ -627,12 +615,9 @@ async function loadVideos(){
    del.onclick=()=>deleteVideo(v.id);
 
    actions.append(edit,del);
-
    row.append(img,info,actions);
-
    box.appendChild(row);
   });
-
  }catch(e){
   box.textContent=e.message;
  }
@@ -640,20 +625,12 @@ async function loadVideos(){
 
 function editVideo(v){
  document.getElementById("videoId").value=v.id;
-
  document.getElementById("videoTitle").value=v.title||"";
-
  document.getElementById("videoDescription").value=v.description||"";
-
  document.getElementById("videoThumbnail").value=v.thumbnail||"";
-
  document.getElementById("videoUrl").value=v.videoUrl||"";
 
- // Existing video category select করা হবে
- populateVideoCategories(
-  window.savedVideoCategories || [],
-  v.categoryId||"premium"
- );
+ populateVideoCategories(window.savedVideoCategories||[],v.categoryId||"premium");
 
  document.getElementById("videoAds").value=v.adsRequired||2;
 
@@ -664,25 +641,16 @@ function editVideo(v){
 }
 
 function clearVideo(){
- [
-  "videoId",
-  "videoTitle",
-  "videoDescription",
-  "videoThumbnail",
-  "videoUrl"
- ].forEach(id=>{
+ ["videoId","videoTitle","videoDescription","videoThumbnail","videoUrl"].forEach(id=>{
   document.getElementById(id).value="";
  });
 
  document.getElementById("videoAds").value=2;
 
  const select=document.getElementById("videoCategory");
-
  const premiumExists=Array.from(select.options).some(o=>o.value==="premium");
 
- select.value=premiumExists
-  ? "premium"
-  : (select.options[0]?.value||"");
+ select.value=premiumExists?"premium":(select.options[0]?.value||"");
 }
 
 async function saveVideo(){
@@ -690,38 +658,26 @@ async function saveVideo(){
 
  const body={
   title:document.getElementById("videoTitle").value.trim(),
-
   description:document.getElementById("videoDescription").value.trim(),
-
   thumbnail:document.getElementById("videoThumbnail").value.trim(),
-
   videoUrl:document.getElementById("videoUrl").value.trim(),
-
   categoryId:document.getElementById("videoCategory").value,
-
   adsRequired:Number(document.getElementById("videoAds").value)
  };
 
  if(!body.title||!body.thumbnail||!body.videoUrl){
-  alert("Title, Thumbnail and Video URL are required");
-  return;
+  alert("Title, Thumbnail and Video URL are required");return;
  }
-
  if(!body.categoryId){
-  alert("Please select a category");
-  return;
+  alert("Please select a category");return;
  }
-
  if(!Number.isInteger(body.adsRequired)||body.adsRequired<1||body.adsRequired>100){
-  alert("Ads Required must be between 1 and 100");
-  return;
+  alert("Ads Required must be between 1 and 100");return;
  }
 
  try{
   await api(
-   id
-    ? "/api/admin/videos/"+encodeURIComponent(id)
-    : "/api/admin/videos",
+   id?"/api/admin/videos/"+encodeURIComponent(id):"/api/admin/videos",
    {
     method:id?"PUT":"POST",
     body:JSON.stringify(body)
@@ -729,30 +685,21 @@ async function saveVideo(){
   );
 
   document.getElementById("videoStatus").textContent="Video saved successfully!";
-
   clearVideo();
-
   await loadVideos();
   await loadDashboard();
-
  }catch(e){
   document.getElementById("videoStatus").textContent=e.message;
  }
 }
 
 async function deleteVideo(id){
- if(!confirm("Are you sure you want to delete this video?")){
-  return;
- }
+ if(!confirm("Are you sure you want to delete this video?")) return;
 
  try{
-  await api("/api/admin/videos/"+encodeURIComponent(id),{
-   method:"DELETE"
-  });
-
+  await api("/api/admin/videos/"+encodeURIComponent(id),{method:"DELETE"});
   await loadVideos();
   await loadDashboard();
-
  }catch(e){
   alert(e.message);
  }
@@ -762,21 +709,14 @@ async function sendBroadcast(){
  const message=document.getElementById("broadcastMessage").value.trim();
 
  if(!message){
-  alert("Write a message first");
-  return;
+  alert("Write a message first");return;
  }
-
  if(message.length>4000){
-  alert("Maximum 4000 characters");
-  return;
+  alert("Maximum 4000 characters");return;
  }
-
- if(!confirm("Send this message to all bot users?")){
-  return;
- }
+ if(!confirm("Send this message to all bot users?")) return;
 
  const box=document.getElementById("broadcastStatus");
-
  box.textContent="Sending...";
 
  try{
@@ -786,20 +726,15 @@ async function sendBroadcast(){
   });
 
   box.textContent=`Completed. Sent: ${d.sent}, Failed: ${d.failed}`;
-
  }catch(e){
   box.textContent=e.message;
  }
 }
 
-// Categories load হলে Edit Video-র জন্যও সংরক্ষণ
-const originalPopulateVideoCategories = populateVideoCategories;
+const originalPopulateVideoCategories=populateVideoCategories;
 
-populateVideoCategories = function(categories, selectedValue=""){
- window.savedVideoCategories = Array.isArray(categories)
-  ? categories
-  : [];
-
+populateVideoCategories=function(categories,selectedValue=""){
+ window.savedVideoCategories=Array.isArray(categories)?categories:[];
  originalPopulateVideoCategories(categories,selectedValue);
 };
 
