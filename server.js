@@ -1,3 +1,4 @@
+
 const express = require("express");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
@@ -17,6 +18,7 @@ const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || "";
 
 const MONETAG_ZONE_ID = "12187766";
 const MIN_REWARDED_AD_MS = 10000;
+const VIDEO_AD_SESSION_LIFETIME = 30 * 60 * 1000;
 
 let db;
 let firebaseReady = false;
@@ -55,19 +57,13 @@ const DEFAULT_SETTINGS = {
   ads: {
     network: "monetag",
     monetagZoneId: MONETAG_ZONE_ID,
-
-    // In-App Interstitial
     automaticAdsEnabled: true,
     autoFirstAdSeconds: 30,
     autoIntervalSeconds: 90,
     inAppFrequency: 4,
     inAppCappingHours: 2,
-
-    // Rewarded Interstitial
     rewardedInterstitialEnabled: true,
     adsPerVideo: 2,
-
-    // Rewarded Popup
     rewardedPopupEnabled: true,
     popupOnReferral: true,
     popupOnVideoUnlock: true,
@@ -234,9 +230,7 @@ async function telegramRequest(method, body) {
   return result.result;
 }
 
-/* Save Telegram user
-   IMPORTANT: Do not write credits/referrals here.
-   A profile update must never overwrite a credit transaction. */
+/* Save Telegram user */
 
 async function saveTelegramUser(user, startParam = "") {
   if (!user || !user.id) throw new Error("Invalid Telegram user");
@@ -272,7 +266,7 @@ async function saveTelegramUser(user, startParam = "") {
   };
 }
 
-/* Referral system - retry-safe and duplicate-protected */
+/* Referral system */
 
 async function processReferral(newUserId, startParam = "") {
   const newId = String(newUserId || "").trim();
@@ -285,11 +279,13 @@ async function processReferral(newUserId, startParam = "") {
     const claimRef = db.ref(`referralClaims/${newId}`);
     const newUserRef = db.ref(`users/${newId}`);
 
-    let claimSnap = await claimRef.once("value");
+    const claimSnap = await claimRef.once("value");
     let claim = claimSnap.val() || null;
 
     let referrerId = "";
-    const match = /^ref_(\d{1,20})$/.exec(String(startParam || "").trim());
+    const match = /^ref_(\d{1,20})$/.exec(
+      String(startParam || "").trim()
+    );
 
     if (match) referrerId = match[1];
 
@@ -367,6 +363,7 @@ async function processReferral(newUserId, startParam = "") {
 
       const claimResult = await claimRef.transaction(current => {
         if (current) return;
+
         return {
           referrerId,
           newUserId: newId,
@@ -554,7 +551,6 @@ function mergeSettings(saved = {}) {
       network: "monetag",
       monetagZoneId: MONETAG_ZONE_ID,
 
-      // In-App Interstitial
       automaticAdsEnabled:
         savedAds.automaticAdsEnabled !== false,
 
@@ -578,7 +574,6 @@ function mergeSettings(saved = {}) {
         Math.min(24, Number(savedAds.inAppCappingHours) || 2)
       ),
 
-      // Rewarded Interstitial
       rewardedInterstitialEnabled:
         savedAds.rewardedInterstitialEnabled !== false,
 
@@ -591,7 +586,6 @@ function mergeSettings(saved = {}) {
         )
       ),
 
-      // Rewarded Popup
       rewardedPopupEnabled:
         savedAds.rewardedPopupEnabled !== false,
 
@@ -612,7 +606,7 @@ function mergeSettings(saved = {}) {
   };
 }
 
-/* Monetag reward progress */
+/* Monetag Special Reward progress */
 
 function getRewardProgress(userData = {}) {
   const progress = userData.monetagRewardProgress || {};
@@ -753,7 +747,6 @@ app.get("/api/videos", requireFirebase, async (req, res) => {
     res.json({
       success: true,
       videos: videos.slice(start, start + perPage),
-
       pagination: {
         page,
         perPage,
@@ -768,10 +761,10 @@ app.get("/api/videos", requireFirebase, async (req, res) => {
   }
 });
 
-/* Video Unlock: count one ad after frontend countdown */
+/* Video Ad Session Start */
 
 app.post(
-  "/api/video/ad/count",
+  "/api/video/ad/start",
   requireFirebase,
   requireTelegramUser,
   async (req, res) => {
@@ -788,9 +781,10 @@ app.post(
 
       await saveTelegramUser(user);
 
-      const [videoSnap, settingsSnap] = await Promise.all([
+      const [videoSnap, settingsSnap, progressSnap] = await Promise.all([
         db.ref(`videos/${videoId}`).once("value"),
-        db.ref("settings").once("value")
+        db.ref("settings").once("value"),
+        db.ref(`users/${user.id}/videoAdProgress/${videoId}`).once("value")
       ]);
 
       if (!videoSnap.exists() || videoSnap.val()?.enabled === false) {
@@ -811,6 +805,166 @@ app.post(
 
       const settings = mergeSettings(settingsSnap.val() || {});
 
+      if (!settings.ads.rewardedInterstitialEnabled) {
+        return res.status(403).json({
+          success: false,
+          error: "Video rewarded ads are disabled"
+        });
+      }
+
+      const required = Math.max(
+        1,
+        Math.min(
+          100,
+          Number(video.adsRequired) ||
+          settings.ads.adsPerVideo
+        )
+      );
+
+      const progress = progressSnap.val() || {};
+      const completed = Math.max(
+        0,
+        Math.min(required - 1, Number(progress.completed) || 0)
+      );
+
+      const sessionId = crypto.randomBytes(18).toString("hex");
+      const now = Date.now();
+
+      await db.ref(
+        `videoAdSessions/${user.id}/${sessionId}`
+      ).set({
+        userId: String(user.id),
+        videoId,
+        required,
+        createdAt: now,
+        expiresAt: now + VIDEO_AD_SESSION_LIFETIME,
+        status: "pending"
+      });
+
+      res.json({
+        success: true,
+        sessionId,
+        videoId,
+        completed,
+        required,
+        remaining: Math.max(0, required - completed),
+        minimumWatchMs: MIN_REWARDED_AD_MS,
+        expiresAt: now + VIDEO_AD_SESSION_LIFETIME
+      });
+    } catch (error) {
+      console.error("Video ad session start error:", error.message);
+
+      res.status(500).json({
+        success: false,
+        error: "Could not start video ad session"
+      });
+    }
+  }
+);
+
+/* Video Ad Count
+   Each session can add progress only once.
+   The progress transaction also stores the session ID to prevent duplicate counts. */
+
+app.post(
+  "/api/video/ad/count",
+  requireFirebase,
+  requireTelegramUser,
+  async (req, res) => {
+    try {
+      const user = req.telegramUser;
+      const videoId = String(req.body?.videoId || "").trim();
+      const sessionId = String(req.body?.sessionId || "").trim();
+
+      if (!/^[a-zA-Z0-9_-]{1,150}$/.test(videoId)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid video ID"
+        });
+      }
+
+      if (!/^[a-f0-9]{36}$/.test(sessionId)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid ad session"
+        });
+      }
+
+      await saveTelegramUser(user);
+
+      const sessionRef = db.ref(
+        `videoAdSessions/${user.id}/${sessionId}`
+      );
+
+      const [sessionSnap, videoSnap, settingsSnap] = await Promise.all([
+        sessionRef.once("value"),
+        db.ref(`videos/${videoId}`).once("value"),
+        db.ref("settings").once("value")
+      ]);
+
+      if (!sessionSnap.exists()) {
+        return res.status(404).json({
+          success: false,
+          error: "Ad session not found"
+        });
+      }
+
+      const session = sessionSnap.val() || {};
+
+      if (
+        String(session.userId) !== String(user.id) ||
+        String(session.videoId) !== videoId
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Ad session mismatch"
+        });
+      }
+
+      if (!videoSnap.exists() || videoSnap.val()?.enabled === false) {
+        return res.status(404).json({
+          success: false,
+          error: "Video not found"
+        });
+      }
+
+      const video = videoSnap.val();
+
+      if (!video.videoUrl) {
+        return res.status(404).json({
+          success: false,
+          error: "Video URL not available"
+        });
+      }
+
+      const now = Date.now();
+
+      if (Number(session.expiresAt) < now) {
+        return res.status(410).json({
+          success: false,
+          error: "Ad session expired. Please start again."
+        });
+      }
+
+      const elapsed = now - Number(session.createdAt || 0);
+
+      if (elapsed < MIN_REWARDED_AD_MS) {
+        return res.status(429).json({
+          success: false,
+          error: "Please wait before counting this ad",
+          retryAfterMs: MIN_REWARDED_AD_MS - elapsed
+        });
+      }
+
+      const settings = mergeSettings(settingsSnap.val() || {});
+
+      if (!settings.ads.rewardedInterstitialEnabled) {
+        return res.status(403).json({
+          success: false,
+          error: "Video rewarded ads are disabled"
+        });
+      }
+
       const required = Math.max(
         1,
         Math.min(
@@ -824,11 +978,17 @@ app.post(
         `users/${user.id}/videoAdProgress/${videoId}`
       );
 
-      const countTime = Date.now();
-      let unlockedThisRequest = false;
+      let eventResult = null;
 
-      const result = await progressRef.transaction(current => {
+      const progressResult = await progressRef.transaction(current => {
         current = current || {};
+        current.sessions = current.sessions || {};
+
+        // Already counted session: do not add progress again.
+        if (current.sessions[sessionId]) {
+          eventResult = current.sessions[sessionId];
+          return current;
+        }
 
         let completed = Math.max(
           0,
@@ -836,14 +996,39 @@ app.post(
         );
 
         completed += 1;
-        unlockedThisRequest = false;
 
-        if (completed >= required) {
-          unlockedThisRequest = true;
+        const unlocked = completed >= required;
+        const countTime = Date.now();
 
+        const event = {
+          countedAt: countTime,
+          unlocked,
+          required
+        };
+
+        // Keep recent session records for duplicate protection.
+        const sessions = current.sessions;
+
+        sessions[sessionId] = event;
+
+        const sessionEntries = Object.entries(sessions);
+
+        for (const [id, savedEvent] of sessionEntries) {
+          if (
+            Number(savedEvent?.countedAt || 0) <
+            countTime - 24 * 60 * 60 * 1000
+          ) {
+            delete sessions[id];
+          }
+        }
+
+        eventResult = event;
+
+        if (unlocked) {
           return {
             completed: 0,
             required,
+            sessions,
 
             totalAdsCompleted:
               (Number(current.totalAdsCompleted) || 0) + required,
@@ -861,21 +1046,30 @@ app.post(
           ...current,
           completed,
           required,
+          sessions,
           lastCountAt: countTime,
           updatedAt: countTime
         };
       });
 
-      if (!result.committed) {
+      if (!progressResult.committed) {
         return res.status(500).json({
           success: false,
           error: "Could not update video ad progress"
         });
       }
 
-      const updated = result.snapshot.val() || {};
+      const updated = progressResult.snapshot.val() || {};
 
-      if (unlockedThisRequest) {
+      // Mark session after the progress transaction.
+      await sessionRef.update({
+        status: "counted",
+        countedAt: Number(eventResult?.countedAt) || Date.now()
+      });
+
+      const unlocked = eventResult?.unlocked === true;
+
+      if (unlocked) {
         console.log(
           `Video unlocked: user=${user.id}, video=${videoId}`
         );
@@ -892,7 +1086,10 @@ app.post(
         });
       }
 
-      const completed = Number(updated.completed) || 0;
+      const completed = Math.max(
+        0,
+        Number(updated.completed) || 0
+      );
 
       res.json({
         success: true,
@@ -1063,7 +1260,6 @@ app.get(
 
       res.json({
         success: true,
-
         user: {
           ...data,
           id: String(user.id),
@@ -1103,8 +1299,8 @@ app.get(
   }
 );
 
-/* Count one completed Special Reward ad
-   IMPORTANT: This existing 50 Ads Reward system is unchanged. */
+/* Special Reward ad verification
+   Existing 50 Ads Reward system is preserved. */
 
 app.post(
   "/api/reward/verify",
@@ -1278,7 +1474,6 @@ app.get(
 
       users.forEach(child => {
         const user = child.val() || {};
-
         totalReferrals += Number(user.totalReferrals) || 0;
         totalCredits += Number(user.credits) || 0;
       });
@@ -1386,11 +1581,9 @@ app.put(
         updates.reward = {
           ...current,
           ...incoming,
-
           enabled: incoming.enabled !== undefined
             ? !!incoming.enabled
             : !!current.enabled,
-
           adsRequired,
           unlockUrl,
           unlockMessage
@@ -1448,19 +1641,15 @@ app.put(
         updates.referral = {
           ...current,
           ...incoming,
-
           enabled: incoming.enabled !== undefined
             ? !!incoming.enabled
             : !!current.enabled,
-
           rewardPerReferral: reward,
           title,
           message,
           instructions
         };
       }
-
-      /* Updated Monetag ad settings */
 
       if (updates.ads) {
         const snap = await db.ref("settings/ads").once("value");
@@ -1552,9 +1741,7 @@ app.put(
         }
 
         function toBoolean(value, fallback) {
-          if (value === undefined || value === null) {
-            return fallback;
-          }
+          if (value === undefined || value === null) return fallback;
 
           if (value === true || value === "true" || value === 1) {
             return true;
@@ -1574,7 +1761,6 @@ app.put(
           network: "monetag",
           monetagZoneId: MONETAG_ZONE_ID,
 
-          // In-App Interstitial
           automaticAdsEnabled: toBoolean(
             incoming.automaticAdsEnabled,
             current.automaticAdsEnabled !== false
@@ -1585,7 +1771,6 @@ app.put(
           inAppFrequency,
           inAppCappingHours,
 
-          // Rewarded Interstitial
           rewardedInterstitialEnabled: toBoolean(
             incoming.rewardedInterstitialEnabled,
             current.rewardedInterstitialEnabled !== false
@@ -1593,7 +1778,6 @@ app.put(
 
           adsPerVideo,
 
-          // Rewarded Popup
           rewardedPopupEnabled: toBoolean(
             incoming.rewardedPopupEnabled,
             current.rewardedPopupEnabled !== false
@@ -1952,80 +2136,116 @@ app.post("/api/telegram/webhook", async (req, res) => {
     return res.sendStatus(403);
   }
 
-  res.sendStatus(200);
+  if (!firebaseReady) {
+    return res.status(503).send("Firebase unavailable");
+  }
 
   try {
-    const message = req.body.message;
+    const message = req.body?.message;
 
-    if (!message || !message.from || !message.chat || !firebaseReady) {
-      return;
+    if (!message || !message.from || !message.chat) {
+      return res.sendStatus(200);
     }
 
-    const text = message.text || "";
+    const text = String(message.text || "").trim();
 
-    if (text.startsWith("/start")) {
-      const payload = text.split(/\s+/)[1] || "";
+    if (!/^\/start(?:@\w+)?(?:\s|$)/.test(text)) {
+      return res.sendStatus(200);
+    }
 
-      const savedUser = await saveTelegramUser(
-        message.from,
-        payload
-      );
+    // Supports /start payload and /start@botname payload.
+    const parts = text.split(/\s+/);
+    const payload = parts[1] || "";
 
-      const referralParam = payload || savedUser.startParam || "";
+    const savedUser = await saveTelegramUser(
+      message.from,
+      payload
+    );
 
+    const referralParam = payload || savedUser.startParam || "";
+
+    if (referralParam.startsWith("ref_")) {
       const referralResult = await processReferral(
         message.from.id,
         referralParam
       );
 
       if (referralResult.success) {
-        await telegramRequest("sendMessage", {
-          chat_id: message.chat.id,
-          text:
-            `🎉 অভিনন্দন!\n\n` +
-            `তোমার Referral থেকে ${referralResult.reward} Credit যোগ হয়েছে।`
-        });
+        // Notification is best-effort; reward is already safely recorded.
+        try {
+          await telegramRequest("sendMessage", {
+            chat_id: message.chat.id,
+            text:
+              `🎉 অভিনন্দন!\n\n` +
+              `তোমার Referral থেকে ${referralResult.reward} Credit যোগ হয়েছে।`
+          });
+        } catch (notifyError) {
+          console.error(
+            "Referral notification failed:",
+            notifyError.message
+          );
+        }
       } else if (
-        referralParam.startsWith("ref_") &&
-        referralResult.reason !== "Already rewarded"
+        ![
+          "Already rewarded",
+          "Self referral",
+          "No referral",
+          "Referral disabled",
+          "User already referred",
+          "User already referred by another person",
+          "Referral claim mismatch"
+        ].includes(referralResult.reason)
       ) {
-        console.log(
-          `Referral not completed: newUser=${message.from.id}, reason=${referralResult.reason}`
+        console.error(
+          `Referral processing pending: user=${message.from.id}, reason=${referralResult.reason}`
         );
       }
+    }
 
-      const botUsername = VIDEO_BOT_USERNAME.replace(/^@/, "");
+    const botUsername = VIDEO_BOT_USERNAME.replace(/^@/, "");
 
-      const referralLink = botUsername
-        ? `https://t.me/${botUsername}?start=ref_${message.from.id}`
-        : "";
+    const referralLink = botUsername
+      ? `https://t.me/${botUsername}?start=ref_${message.from.id}`
+      : "";
 
-      const keyboard = WEB_APP_URL
-        ? {
-            inline_keyboard: [[
-              {
-                text: "🎬 Open Premium Video",
-                web_app: { url: WEB_APP_URL }
-              }
-            ]]
-          }
-        : undefined;
+    const keyboard = WEB_APP_URL
+      ? {
+          inline_keyboard: [[
+            {
+              text: "🎬 Open Premium Video",
+              web_app: { url: WEB_APP_URL }
+            }
+          ]]
+        }
+      : undefined;
 
-      let welcomeText =
-        "স্বাগতম Premium Video-তে! নিচের বাটনে Mini App খুলুন।";
+    let welcomeText =
+      "স্বাগতম Premium Video-তে! নিচের বাটনে Mini App খুলুন।";
 
-      if (referralLink) {
-        welcomeText += `\n\n🔗 তোমার Referral Link:\n${referralLink}`;
-      }
+    if (referralLink) {
+      welcomeText += `\n\n🔗 তোমার Referral Link:\n${referralLink}`;
+    }
 
+    try {
       await telegramRequest("sendMessage", {
         chat_id: message.chat.id,
         text: welcomeText,
         reply_markup: keyboard
       });
+    } catch (notifyError) {
+      console.error(
+        "Welcome message failed:",
+        notifyError.message
+      );
     }
+
+    // Acknowledge only after user/referral processing is attempted.
+    return res.sendStatus(200);
   } catch (error) {
     console.error("Webhook processing error:", error.message);
+
+    // Telegram can retry this update.
+    return res.status(500).send("Webhook processing failed");
   }
 });
 
