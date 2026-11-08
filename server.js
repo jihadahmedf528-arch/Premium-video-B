@@ -25,21 +25,25 @@ const DEFAULT_SETTINGS = {
   appName: "Premium Video",
   appLogo: "",
   theme: "dark",
+
   promotionalChannel: {
     name: "Promotional Channel",
     url: ""
   },
+
   categories: [
     { id: "all", name: "All Videos", enabled: true },
     { id: "premium", name: "Premium", enabled: true },
     { id: "classic", name: "Classic", enabled: true }
   ],
+
   reward: {
     enabled: true,
     adsRequired: 50,
     unlockUrl: "",
     unlockMessage: "৫০টি বিজ্ঞাপন সম্পন্ন করে তোমার Reward Unlock করো!"
   },
+
   referral: {
     enabled: true,
     rewardPerReferral: 1,
@@ -47,17 +51,33 @@ const DEFAULT_SETTINGS = {
     message: "বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো। তারা তোমার লিংক দিয়ে প্রথমবার Start করলেই তুমি Credit পাবে।",
     instructions: "১. Referral Link কপি করো।\n২. বন্ধুদের সঙ্গে শেয়ার করো।\n৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।"
   },
+
   ads: {
     network: "monetag",
     monetagZoneId: MONETAG_ZONE_ID,
+
+    // In-App Interstitial
     automaticAdsEnabled: true,
     autoFirstAdSeconds: 30,
     autoIntervalSeconds: 90,
-    adsPerVideo: 2
+    inAppFrequency: 4,
+    inAppCappingHours: 2,
+
+    // Rewarded Interstitial
+    rewardedInterstitialEnabled: true,
+    adsPerVideo: 2,
+
+    // Rewarded Popup
+    rewardedPopupEnabled: true,
+    popupOnReferral: true,
+    popupOnVideoUnlock: true,
+    popupOnBonus: false
   },
+
   pagination: {
     videosPerPage: 10
   },
+
   maintenanceMode: false
 };
 
@@ -511,36 +531,80 @@ function mergeSettings(saved = {}) {
   return {
     ...DEFAULT_SETTINGS,
     ...saved,
+
     promotionalChannel: {
       ...DEFAULT_SETTINGS.promotionalChannel,
       ...(saved.promotionalChannel || {})
     },
+
     reward: {
       ...DEFAULT_SETTINGS.reward,
       ...(saved.reward || {})
     },
+
     referral: {
       ...DEFAULT_SETTINGS.referral,
       ...(saved.referral || {})
     },
+
     ads: {
+      ...DEFAULT_SETTINGS.ads,
+      ...savedAds,
+
       network: "monetag",
       monetagZoneId: MONETAG_ZONE_ID,
-      automaticAdsEnabled: savedAds.automaticAdsEnabled !== false,
+
+      // In-App Interstitial
+      automaticAdsEnabled:
+        savedAds.automaticAdsEnabled !== false,
+
       autoFirstAdSeconds: Math.max(
         5,
         Math.min(3600, Number(savedAds.autoFirstAdSeconds) || 30)
       ),
+
       autoIntervalSeconds: Math.max(
         10,
         Math.min(3600, Number(savedAds.autoIntervalSeconds) || 90)
       ),
+
+      inAppFrequency: Math.max(
+        1,
+        Math.min(20, Number(savedAds.inAppFrequency) || 4)
+      ),
+
+      inAppCappingHours: Math.max(
+        1,
+        Math.min(24, Number(savedAds.inAppCappingHours) || 2)
+      ),
+
+      // Rewarded Interstitial
+      rewardedInterstitialEnabled:
+        savedAds.rewardedInterstitialEnabled !== false,
+
       adsPerVideo: Math.max(
         1,
-        Math.min(100, Number(savedAds.adsPerVideo) ||
-          DEFAULT_SETTINGS.ads.adsPerVideo)
-      )
+        Math.min(
+          100,
+          Number(savedAds.adsPerVideo) ||
+          DEFAULT_SETTINGS.ads.adsPerVideo
+        )
+      ),
+
+      // Rewarded Popup
+      rewardedPopupEnabled:
+        savedAds.rewardedPopupEnabled !== false,
+
+      popupOnReferral:
+        savedAds.popupOnReferral !== false,
+
+      popupOnVideoUnlock:
+        savedAds.popupOnVideoUnlock !== false,
+
+      popupOnBonus:
+        savedAds.popupOnBonus === true
     },
+
     pagination: {
       ...DEFAULT_SETTINGS.pagination,
       ...(saved.pagination || {})
@@ -552,6 +616,7 @@ function mergeSettings(saved = {}) {
 
 function getRewardProgress(userData = {}) {
   const progress = userData.monetagRewardProgress || {};
+
   return {
     completed: Math.max(0, Number(progress.completed) || 0),
     events: progress.events || {},
@@ -562,11 +627,14 @@ function getRewardProgress(userData = {}) {
 function getRewardStatus(settings, userData = {}) {
   const reward = settings.reward;
   const progress = getRewardProgress(userData);
+
   const required = Math.max(
     1,
     Math.min(1000, Number(reward.adsRequired) || 50)
   );
+
   const enabled = reward.enabled === true;
+
   const unlocked = enabled && !!reward.unlockUrl &&
     progress.completed >= required;
 
@@ -608,7 +676,9 @@ app.get("/api/settings", requireFirebase, async (req, res) => {
   try {
     const snapshot = await db.ref("settings").once("value");
     const settings = mergeSettings(snapshot.val() || {});
+
     settings.reward.unlockUrl = "";
+
     res.json({ success: true, settings });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -624,6 +694,7 @@ app.get(
   async (req, res) => {
     try {
       const snapshot = await db.ref("settings").once("value");
+
       res.json({
         success: true,
         settings: mergeSettings(snapshot.val() || {})
@@ -649,6 +720,7 @@ app.get("/api/videos", requireFirebase, async (req, res) => {
 
     snapshot.forEach(child => {
       const video = child.val();
+
       if (video && video.enabled !== false) {
         const { videoUrl, ...publicVideo } = video;
         videos.push({ id: child.key, ...publicVideo });
@@ -667,8 +739,11 @@ app.get("/api/videos", requireFirebase, async (req, res) => {
 
     const perPage = Math.max(
       1,
-      Math.min(50, Number(settingsSnap.val()) ||
-        DEFAULT_SETTINGS.pagination.videosPerPage)
+      Math.min(
+        50,
+        Number(settingsSnap.val()) ||
+        DEFAULT_SETTINGS.pagination.videosPerPage
+      )
     );
 
     const total = videos.length;
@@ -678,6 +753,7 @@ app.get("/api/videos", requireFirebase, async (req, res) => {
     res.json({
       success: true,
       videos: videos.slice(start, start + perPage),
+
       pagination: {
         page,
         perPage,
@@ -734,10 +810,14 @@ app.post(
       }
 
       const settings = mergeSettings(settingsSnap.val() || {});
+
       const required = Math.max(
         1,
-        Math.min(100, Number(video.adsRequired) ||
-          settings.ads.adsPerVideo)
+        Math.min(
+          100,
+          Number(video.adsRequired) ||
+          settings.ads.adsPerVideo
+        )
       );
 
       const progressRef = db.ref(
@@ -749,18 +829,28 @@ app.post(
 
       const result = await progressRef.transaction(current => {
         current = current || {};
-        let completed = Math.max(0, Number(current.completed) || 0);
+
+        let completed = Math.max(
+          0,
+          Number(current.completed) || 0
+        );
+
         completed += 1;
         unlockedThisRequest = false;
 
         if (completed >= required) {
           unlockedThisRequest = true;
+
           return {
             completed: 0,
             required,
+
             totalAdsCompleted:
               (Number(current.totalAdsCompleted) || 0) + required,
-            totalUnlocks: (Number(current.totalUnlocks) || 0) + 1,
+
+            totalUnlocks:
+              (Number(current.totalUnlocks) || 0) + 1,
+
             lastUnlockAt: countTime,
             lastCountAt: countTime,
             updatedAt: countTime
@@ -786,7 +876,10 @@ app.post(
       const updated = result.snapshot.val() || {};
 
       if (unlockedThisRequest) {
-        console.log(`Video unlocked: user=${user.id}, video=${videoId}`);
+        console.log(
+          `Video unlocked: user=${user.id}, video=${videoId}`
+        );
+
         return res.json({
           success: true,
           unlocked: true,
@@ -800,6 +893,7 @@ app.post(
       }
 
       const completed = Number(updated.completed) || 0;
+
       res.json({
         success: true,
         unlocked: false,
@@ -811,6 +905,7 @@ app.post(
       });
     } catch (error) {
       console.error("Video ad count error:", error.message);
+
       res.status(500).json({
         success: false,
         error: "Could not count video ad"
@@ -828,6 +923,7 @@ app.get(
   async (req, res) => {
     try {
       const user = req.telegramUser;
+
       await saveTelegramUser(user);
 
       const snapshot = await db.ref(`users/${user.id}/credits`).once("value");
@@ -836,6 +932,7 @@ app.get(
       res.json({ success: true, credits });
     } catch (error) {
       console.error("Credit status error:", error.message);
+
       res.status(500).json({
         success: false,
         error: "Could not load credit balance"
@@ -884,9 +981,12 @@ app.post(
       }
 
       const creditRef = db.ref(`users/${user.id}/credits`);
+
       const transaction = await creditRef.transaction(current => {
         const balance = Math.max(0, Number(current) || 0);
+
         if (balance < 1) return;
+
         return balance - 1;
       });
 
@@ -895,6 +995,7 @@ app.post(
           0,
           Number(transaction.snapshot.val()) || 0
         );
+
         return res.status(400).json({
           success: false,
           error: "Not enough credits",
@@ -922,6 +1023,7 @@ app.post(
       });
     } catch (error) {
       console.error("Credit unlock error:", error.message);
+
       res.status(500).json({
         success: false,
         error: "Could not unlock video with credit"
@@ -953,6 +1055,7 @@ app.get(
   async (req, res) => {
     try {
       const user = req.telegramUser;
+
       await saveTelegramUser(user);
 
       const snapshot = await db.ref(`users/${user.id}`).once("value");
@@ -960,6 +1063,7 @@ app.get(
 
       res.json({
         success: true,
+
         user: {
           ...data,
           id: String(user.id),
@@ -982,6 +1086,7 @@ app.get(
   async (req, res) => {
     try {
       const user = req.telegramUser;
+
       await saveTelegramUser(user);
 
       const [settingsSnap, userSnap] = await Promise.all([
@@ -990,6 +1095,7 @@ app.get(
       ]);
 
       const settings = mergeSettings(settingsSnap.val() || {});
+
       res.json(getRewardStatus(settings, userSnap.val() || {}));
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -997,7 +1103,8 @@ app.get(
   }
 );
 
-/* Count one completed Special Reward ad */
+/* Count one completed Special Reward ad
+   IMPORTANT: This existing 50 Ads Reward system is unchanged. */
 
 app.post(
   "/api/reward/verify",
@@ -1044,6 +1151,7 @@ app.post(
 
       const claimResult = await claimRef.transaction(current => {
         if (current) return;
+
         return {
           userId: String(user.id),
           createdAt: Date.now(),
@@ -1072,8 +1180,14 @@ app.post(
 
       const progressResult = await progressRef.transaction(current => {
         const now = Date.now();
+
         current = current || {};
-        current.completed = Math.max(0, Number(current.completed) || 0);
+
+        current.completed = Math.max(
+          0,
+          Number(current.completed) || 0
+        );
+
         current.events = current.events || {};
 
         if (current.events[ymidHash]) return;
@@ -1082,6 +1196,7 @@ app.post(
 
         if (previousAdAt > 0) {
           const elapsed = now - previousAdAt;
+
           if (elapsed < MIN_REWARDED_AD_MS) {
             retryAfterMs = MIN_REWARDED_AD_MS - elapsed;
             return;
@@ -1092,6 +1207,7 @@ app.post(
         current.completed += 1;
         current.lastAdAt = now;
         current.updatedAt = now;
+
         return current;
       });
 
@@ -1118,7 +1234,11 @@ app.post(
       });
 
       const latestUserSnap = await db.ref(`users/${user.id}`).once("value");
-      const status = getRewardStatus(settings, latestUserSnap.val() || {});
+
+      const status = getRewardStatus(
+        settings,
+        latestUserSnap.val() || {}
+      );
 
       console.log(
         `Monetag reward counted: user=${user.id}, completed=${status.completed}`
@@ -1131,6 +1251,7 @@ app.post(
       });
     } catch (error) {
       console.error("Reward count error:", error.message);
+
       res.status(500).json({
         success: false,
         error: "Could not count reward ad"
@@ -1157,6 +1278,7 @@ app.get(
 
       users.forEach(child => {
         const user = child.val() || {};
+
         totalReferrals += Number(user.totalReferrals) || 0;
         totalCredits += Number(user.credits) || 0;
       });
@@ -1198,15 +1320,19 @@ app.put(
       const updates = {};
 
       for (const key of allowed) {
-        if (req.body[key] !== undefined) updates[key] = req.body[key];
+        if (req.body[key] !== undefined) {
+          updates[key] = req.body[key];
+        }
       }
 
       if (updates.reward) {
         const snap = await db.ref("settings/reward").once("value");
+
         const current = {
           ...DEFAULT_SETTINGS.reward,
           ...(snap.val() || {})
         };
+
         const incoming = updates.reward;
 
         const adsRequired = incoming.adsRequired !== undefined
@@ -1221,8 +1347,11 @@ app.put(
           ? String(incoming.unlockUrl).trim()
           : String(current.unlockUrl || "");
 
-        if (!Number.isInteger(adsRequired) ||
-          adsRequired < 1 || adsRequired > 1000) {
+        if (
+          !Number.isInteger(adsRequired) ||
+          adsRequired < 1 ||
+          adsRequired > 1000
+        ) {
           return res.status(400).json({
             success: false,
             error: "Required ads must be between 1 and 1000"
@@ -1239,7 +1368,11 @@ app.put(
         if (unlockUrl) {
           try {
             const parsed = new URL(unlockUrl);
-            if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+
+            if (
+              parsed.protocol !== "https:" &&
+              parsed.protocol !== "http:"
+            ) {
               throw new Error("Invalid protocol");
             }
           } catch {
@@ -1253,9 +1386,11 @@ app.put(
         updates.reward = {
           ...current,
           ...incoming,
+
           enabled: incoming.enabled !== undefined
             ? !!incoming.enabled
             : !!current.enabled,
+
           adsRequired,
           unlockUrl,
           unlockMessage
@@ -1264,10 +1399,12 @@ app.put(
 
       if (updates.referral) {
         const snap = await db.ref("settings/referral").once("value");
+
         const current = {
           ...DEFAULT_SETTINGS.referral,
           ...(snap.val() || {})
         };
+
         const incoming = updates.referral;
 
         const reward = incoming.rewardPerReferral !== undefined
@@ -1286,15 +1423,22 @@ app.put(
           ? String(incoming.instructions)
           : String(current.instructions || "");
 
-        if (!Number.isFinite(reward) || reward < 0 || reward > 1000000) {
+        if (
+          !Number.isFinite(reward) ||
+          reward < 0 ||
+          reward > 1000000
+        ) {
           return res.status(400).json({
             success: false,
             error: "Referral reward must be between 0 and 1000000"
           });
         }
 
-        if (title.length > 150 || message.length > 2000 ||
-          instructions.length > 2000) {
+        if (
+          title.length > 150 ||
+          message.length > 2000 ||
+          instructions.length > 2000
+        ) {
           return res.status(400).json({
             success: false,
             error: "Referral text is too long"
@@ -1304,9 +1448,11 @@ app.put(
         updates.referral = {
           ...current,
           ...incoming,
+
           enabled: incoming.enabled !== undefined
             ? !!incoming.enabled
             : !!current.enabled,
+
           rewardPerReferral: reward,
           title,
           message,
@@ -1314,12 +1460,16 @@ app.put(
         };
       }
 
+      /* Updated Monetag ad settings */
+
       if (updates.ads) {
         const snap = await db.ref("settings/ads").once("value");
+
         const current = {
           ...DEFAULT_SETTINGS.ads,
           ...(snap.val() || {})
         };
+
         const incoming = updates.ads;
 
         const adsPerVideo = incoming.adsPerVideo !== undefined
@@ -1336,48 +1486,147 @@ app.put(
             ? Number(incoming.autoIntervalSeconds)
             : Number(current.autoIntervalSeconds) || 90;
 
-        if (!Number.isInteger(adsPerVideo) ||
-          adsPerVideo < 1 || adsPerVideo > 100) {
+        const inAppFrequency =
+          incoming.inAppFrequency !== undefined
+            ? Number(incoming.inAppFrequency)
+            : Number(current.inAppFrequency) || 4;
+
+        const inAppCappingHours =
+          incoming.inAppCappingHours !== undefined
+            ? Number(incoming.inAppCappingHours)
+            : Number(current.inAppCappingHours) || 2;
+
+        if (
+          !Number.isInteger(adsPerVideo) ||
+          adsPerVideo < 1 ||
+          adsPerVideo > 100
+        ) {
           return res.status(400).json({
             success: false,
             error: "Ads per video must be between 1 and 100"
           });
         }
 
-        if (!Number.isInteger(autoFirstAdSeconds) ||
-          autoFirstAdSeconds < 5 || autoFirstAdSeconds > 3600) {
+        if (
+          !Number.isInteger(autoFirstAdSeconds) ||
+          autoFirstAdSeconds < 5 ||
+          autoFirstAdSeconds > 3600
+        ) {
           return res.status(400).json({
             success: false,
             error: "First automatic ad delay must be 5-3600 seconds"
           });
         }
 
-        if (!Number.isInteger(autoIntervalSeconds) ||
-          autoIntervalSeconds < 10 || autoIntervalSeconds > 3600) {
+        if (
+          !Number.isInteger(autoIntervalSeconds) ||
+          autoIntervalSeconds < 10 ||
+          autoIntervalSeconds > 3600
+        ) {
           return res.status(400).json({
             success: false,
             error: "Automatic ad interval must be 10-3600 seconds"
           });
         }
 
+        if (
+          !Number.isInteger(inAppFrequency) ||
+          inAppFrequency < 1 ||
+          inAppFrequency > 20
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: "In-App frequency must be between 1 and 20"
+          });
+        }
+
+        if (
+          !Number.isInteger(inAppCappingHours) ||
+          inAppCappingHours < 1 ||
+          inAppCappingHours > 24
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: "In-App capping must be between 1 and 24 hours"
+          });
+        }
+
+        function toBoolean(value, fallback) {
+          if (value === undefined || value === null) {
+            return fallback;
+          }
+
+          if (value === true || value === "true" || value === 1) {
+            return true;
+          }
+
+          if (value === false || value === "false" || value === 0) {
+            return false;
+          }
+
+          return fallback;
+        }
+
         updates.ads = {
+          ...current,
+          ...incoming,
+
           network: "monetag",
           monetagZoneId: MONETAG_ZONE_ID,
-          automaticAdsEnabled:
-            incoming.automaticAdsEnabled !== undefined
-              ? incoming.automaticAdsEnabled === true ||
-                incoming.automaticAdsEnabled === "true"
-              : current.automaticAdsEnabled !== false,
+
+          // In-App Interstitial
+          automaticAdsEnabled: toBoolean(
+            incoming.automaticAdsEnabled,
+            current.automaticAdsEnabled !== false
+          ),
+
           autoFirstAdSeconds,
           autoIntervalSeconds,
-          adsPerVideo
+          inAppFrequency,
+          inAppCappingHours,
+
+          // Rewarded Interstitial
+          rewardedInterstitialEnabled: toBoolean(
+            incoming.rewardedInterstitialEnabled,
+            current.rewardedInterstitialEnabled !== false
+          ),
+
+          adsPerVideo,
+
+          // Rewarded Popup
+          rewardedPopupEnabled: toBoolean(
+            incoming.rewardedPopupEnabled,
+            current.rewardedPopupEnabled !== false
+          ),
+
+          popupOnReferral: toBoolean(
+            incoming.popupOnReferral,
+            current.popupOnReferral !== false
+          ),
+
+          popupOnVideoUnlock: toBoolean(
+            incoming.popupOnVideoUnlock,
+            current.popupOnVideoUnlock !== false
+          ),
+
+          popupOnBonus: toBoolean(
+            incoming.popupOnBonus,
+            current.popupOnBonus === true
+          )
         };
       }
 
       await db.ref("settings").update(updates);
-      res.json({ success: true, message: "Settings updated" });
+
+      res.json({
+        success: true,
+        message: "Settings updated"
+      });
     } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
     }
   }
 );
@@ -1395,12 +1644,17 @@ app.get(
         .once("value");
 
       const videos = [];
+
       snapshot.forEach(child => {
         const video = child.val();
-        if (video) videos.push({ id: child.key, ...video });
+
+        if (video) {
+          videos.push({ id: child.key, ...video });
+        }
       });
 
       videos.reverse();
+
       res.json({ success: true, videos });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -1413,6 +1667,7 @@ app.get(
 async function notifyAllUsers(video) {
   const snapshot = await db.ref("users").once("value");
   const users = snapshot.val() || {};
+
   const botUsername = VIDEO_BOT_USERNAME.replace(/^@/, "");
 
   const deepLink = botUsername
@@ -1450,6 +1705,7 @@ async function notifyAllUsers(video) {
               caption,
               reply_markup: keyboard
             });
+
             return;
           } catch (photoError) {
             console.error(
@@ -1504,7 +1760,11 @@ app.post(
 
       const required = Number(adsRequired);
 
-      if (!Number.isInteger(required) || required < 1 || required > 100) {
+      if (
+        !Number.isInteger(required) ||
+        required < 1 ||
+        required > 100
+      ) {
         return res.status(400).json({
           success: false,
           error: "Ads Required must be between 1 and 100"
@@ -1528,6 +1788,7 @@ app.post(
       await videoRef.set(video);
 
       let notifiedUsers = 0;
+
       try {
         notifiedUsers = await notifyAllUsers({
           id: videoRef.key,
@@ -1580,22 +1841,30 @@ app.put(
       const updates = { updatedAt: Date.now() };
 
       for (const key of allowed) {
-        if (req.body[key] !== undefined) updates[key] = req.body[key];
+        if (req.body[key] !== undefined) {
+          updates[key] = req.body[key];
+        }
       }
 
       if (updates.adsRequired !== undefined) {
         const required = Number(updates.adsRequired);
 
-        if (!Number.isInteger(required) || required < 1 || required > 100) {
+        if (
+          !Number.isInteger(required) ||
+          required < 1 ||
+          required > 100
+        ) {
           return res.status(400).json({
             success: false,
             error: "Ads Required must be between 1 and 100"
           });
         }
+
         updates.adsRequired = required;
       }
 
       await ref.update(updates);
+
       res.json({ success: true, message: "Video updated" });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -1612,6 +1881,7 @@ app.delete(
   async (req, res) => {
     try {
       await db.ref(`videos/${req.params.id}`).remove();
+
       res.json({ success: true, message: "Video deleted" });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -1645,6 +1915,7 @@ app.post(
 
       for (let i = 0; i < ids.length; i += 20) {
         const batch = ids.slice(i, i + 20);
+
         const results = await Promise.allSettled(
           batch.map(id => telegramRequest("sendMessage", {
             chat_id: id,
@@ -1659,7 +1930,12 @@ app.post(
         });
       }
 
-      res.json({ success: true, total: ids.length, sent, failed });
+      res.json({
+        success: true,
+        total: ids.length,
+        sent,
+        failed
+      });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }
@@ -1690,9 +1966,13 @@ app.post("/api/telegram/webhook", async (req, res) => {
     if (text.startsWith("/start")) {
       const payload = text.split(/\s+/)[1] || "";
 
-      const savedUser = await saveTelegramUser(message.from, payload);
+      const savedUser = await saveTelegramUser(
+        message.from,
+        payload
+      );
 
       const referralParam = payload || savedUser.startParam || "";
+
       const referralResult = await processReferral(
         message.from.id,
         referralParam
@@ -1715,6 +1995,7 @@ app.post("/api/telegram/webhook", async (req, res) => {
       }
 
       const botUsername = VIDEO_BOT_USERNAME.replace(/^@/, "");
+
       const referralLink = botUsername
         ? `https://t.me/${botUsername}?start=ref_${message.from.id}`
         : "";
@@ -1757,7 +2038,8 @@ async function setupWebhook() {
   }
 
   try {
-    const url = `${PUBLIC_URL.replace(/\/$/, "")}/api/telegram/webhook`;
+    const url =
+      `${PUBLIC_URL.replace(/\/$/, "")}/api/telegram/webhook`;
 
     await telegramRequest("setWebhook", {
       url,
