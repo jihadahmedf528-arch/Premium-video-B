@@ -230,6 +230,24 @@ async function telegramRequest(method, body) {
   return result.result;
 }
 
+/* Direct video Mini App URL */
+
+function buildVideoAppUrl(videoId) {
+  if (!WEB_APP_URL || !videoId) return "";
+
+  try {
+    const url = new URL(WEB_APP_URL);
+
+    url.searchParams.set("videoId", String(videoId));
+    url.searchParams.set("autoPlayAds", "1");
+
+    return url.toString();
+  } catch (error) {
+    console.error("Invalid WEB_APP_URL:", error.message);
+    return "";
+  }
+}
+
 /* Save Telegram user */
 
 async function saveTelegramUser(user, startParam = "") {
@@ -862,9 +880,7 @@ app.post(
   }
 );
 
-/* Video Ad Count
-   Each session can add progress only once.
-   The progress transaction also stores the session ID to prevent duplicate counts. */
+/* Video Ad Count */
 
 app.post(
   "/api/video/ad/count",
@@ -984,7 +1000,6 @@ app.post(
         current = current || {};
         current.sessions = current.sessions || {};
 
-        // Already counted session: do not add progress again.
         if (current.sessions[sessionId]) {
           eventResult = current.sessions[sessionId];
           return current;
@@ -1006,14 +1021,10 @@ app.post(
           required
         };
 
-        // Keep recent session records for duplicate protection.
         const sessions = current.sessions;
-
         sessions[sessionId] = event;
 
-        const sessionEntries = Object.entries(sessions);
-
-        for (const [id, savedEvent] of sessionEntries) {
+        for (const [id, savedEvent] of Object.entries(sessions)) {
           if (
             Number(savedEvent?.countedAt || 0) <
             countTime - 24 * 60 * 60 * 1000
@@ -1061,7 +1072,6 @@ app.post(
 
       const updated = progressResult.snapshot.val() || {};
 
-      // Mark session after the progress transaction.
       await sessionRef.update({
         status: "counted",
         countedAt: Number(eventResult?.countedAt) || Date.now()
@@ -1299,8 +1309,7 @@ app.get(
   }
 );
 
-/* Special Reward ad verification
-   Existing 50 Ads Reward system is preserved. */
+/* Special Reward ad verification */
 
 app.post(
   "/api/reward/verify",
@@ -1846,17 +1855,19 @@ app.get(
   }
 );
 
-/* Notify users about new video with thumbnail */
+/* Notify users about new video with direct Mini App button */
 
 async function notifyAllUsers(video) {
   const snapshot = await db.ref("users").once("value");
   const users = snapshot.val() || {};
 
+  const directAppUrl = buildVideoAppUrl(video.id);
+
   const botUsername = VIDEO_BOT_USERNAME.replace(/^@/, "");
 
-  const deepLink = botUsername
+  const fallbackUrl = botUsername
     ? `https://t.me/${botUsername}?start=v_${video.id}`
-    : WEB_APP_URL;
+    : "";
 
   const title = String(video.title || "নতুন ভিডিও").slice(0, 200);
   const description = String(video.description || "").slice(0, 700);
@@ -1873,13 +1884,29 @@ async function notifyAllUsers(video) {
 
     await Promise.allSettled(batch.map(async id => {
       try {
-        const keyboard = deepLink
-          ? {
-              inline_keyboard: [[
-                { text: "▶️ ভিডিও দেখুন", url: deepLink }
-              ]]
-            }
-          : undefined;
+        let keyboard;
+
+        if (directAppUrl) {
+          keyboard = {
+            inline_keyboard: [[
+              {
+                text: "▶️ ভিডিও দেখুন",
+                web_app: {
+                  url: directAppUrl
+                }
+              }
+            ]]
+          };
+        } else if (fallbackUrl) {
+          keyboard = {
+            inline_keyboard: [[
+              {
+                text: "▶️ ভিডিও দেখুন",
+                url: fallbackUrl
+              }
+            ]]
+          };
+        }
 
         if (video.thumbnail) {
           try {
@@ -2153,7 +2180,6 @@ app.post("/api/telegram/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // Supports /start payload and /start@botname payload.
     const parts = text.split(/\s+/);
     const payload = parts[1] || "";
 
@@ -2171,7 +2197,6 @@ app.post("/api/telegram/webhook", async (req, res) => {
       );
 
       if (referralResult.success) {
-        // Notification is best-effort; reward is already safely recorded.
         try {
           await telegramRequest("sendMessage", {
             chat_id: message.chat.id,
@@ -2199,6 +2224,45 @@ app.post("/api/telegram/webhook", async (req, res) => {
         console.error(
           `Referral processing pending: user=${message.from.id}, reason=${referralResult.reason}`
         );
+      }
+    }
+
+    /* Open requested video from /start v_VIDEO_ID */
+
+    const videoPayloadMatch =
+      /^v_([a-zA-Z0-9_-]{1,150})$/.exec(payload);
+
+    if (videoPayloadMatch) {
+      const videoId = videoPayloadMatch[1];
+
+      const videoSnap = await db.ref(`videos/${videoId}`).once("value");
+
+      if (
+        videoSnap.exists() &&
+        videoSnap.val()?.enabled !== false
+      ) {
+        const directAppUrl = buildVideoAppUrl(videoId);
+
+        if (directAppUrl) {
+          await telegramRequest("sendMessage", {
+            chat_id: message.chat.id,
+            text:
+              `🎬 ${videoSnap.val().title || "ভিডিও"}\n\n` +
+              `নিচের বাটনে ক্লিক করলে সরাসরি এই ভিডিওটি খুলবে।`,
+            reply_markup: {
+              inline_keyboard: [[
+                {
+                  text: "▶️ ভিডিও দেখুন",
+                  web_app: {
+                    url: directAppUrl
+                  }
+                }
+              ]]
+            }
+          });
+
+          return res.sendStatus(200);
+        }
       }
     }
 
@@ -2239,12 +2303,9 @@ app.post("/api/telegram/webhook", async (req, res) => {
       );
     }
 
-    // Acknowledge only after user/referral processing is attempted.
     return res.sendStatus(200);
   } catch (error) {
     console.error("Webhook processing error:", error.message);
-
-    // Telegram can retry this update.
     return res.status(500).send("Webhook processing failed");
   }
 });
