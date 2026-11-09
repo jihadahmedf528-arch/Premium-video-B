@@ -672,6 +672,41 @@ function hashYmid(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
+/* Video ad helper */
+
+function getVideoAdsRequired(video, settings) {
+  return Math.max(
+    1,
+    Math.min(
+      100,
+      Number(video.adsRequired) ||
+      settings.ads.adsPerVideo ||
+      DEFAULT_SETTINGS.ads.adsPerVideo
+    )
+  );
+}
+
+function buildVideoAdCountResponse(event, videoId, videoUrl) {
+  const completed = Math.max(0, Number(event.completed) || 0);
+  const required = Math.max(1, Number(event.required) || 1);
+  const unlocked = event.unlocked === true;
+
+  return {
+    success: true,
+    unlocked,
+    videoId,
+    completed: unlocked ? required : completed,
+    required,
+    remaining: unlocked
+      ? 0
+      : Math.max(0, required - completed),
+    ...(unlocked ? { videoUrl } : {}),
+    message: unlocked
+      ? "Video unlocked successfully"
+      : "Ad counted"
+  };
+}
+
 /* Health */
 
 app.get("/health", (req, res) => {
@@ -830,20 +865,29 @@ app.post(
         });
       }
 
-      const required = Math.max(
-        1,
-        Math.min(
-          100,
-          Number(video.adsRequired) ||
-          settings.ads.adsPerVideo
-        )
-      );
-
+      const required = getVideoAdsRequired(video, settings);
       const progress = progressSnap.val() || {};
+
       const completed = Math.max(
         0,
-        Math.min(required - 1, Number(progress.completed) || 0)
+        Number(progress.completed) || 0
       );
+
+      /* Previously completed progress can unlock immediately
+         if the admin lowers the required ad count. */
+
+      if (completed >= required) {
+        return res.json({
+          success: true,
+          unlocked: true,
+          videoId,
+          completed: required,
+          required,
+          remaining: 0,
+          videoUrl: video.videoUrl,
+          message: "Video already unlocked"
+        });
+      }
 
       const sessionId = crypto.randomBytes(18).toString("hex");
       const now = Date.now();
@@ -854,6 +898,7 @@ app.post(
         userId: String(user.id),
         videoId,
         required,
+        minimumWatchMs: MIN_REWARDED_AD_MS,
         createdAt: now,
         expiresAt: now + VIDEO_AD_SESSION_LIFETIME,
         status: "pending"
@@ -861,6 +906,7 @@ app.post(
 
       res.json({
         success: true,
+        unlocked: false,
         sessionId,
         videoId,
         completed,
@@ -953,22 +999,51 @@ app.post(
         });
       }
 
+      /* Return the saved result if this session was already counted.
+         This makes repeated requests safe and prevents duplicate counting. */
+
+      if (session.status === "counted" && session.result) {
+        return res.json(
+          buildVideoAdCountResponse(
+            session.result,
+            videoId,
+            video.videoUrl
+          )
+        );
+      }
+
+      if (session.status !== "pending") {
+        return res.status(409).json({
+          success: false,
+          error: "This ad session has already been used"
+        });
+      }
+
       const now = Date.now();
 
-      if (Number(session.expiresAt) < now) {
+      if (
+        !Number(session.expiresAt) ||
+        Number(session.expiresAt) < now
+      ) {
         return res.status(410).json({
           success: false,
           error: "Ad session expired. Please start again."
         });
       }
 
-      const elapsed = now - Number(session.createdAt || 0);
+      const createdAt = Number(session.createdAt) || 0;
+      const minimumWatchMs = Math.max(
+        MIN_REWARDED_AD_MS,
+        Number(session.minimumWatchMs) || 0
+      );
 
-      if (elapsed < MIN_REWARDED_AD_MS) {
+      const elapsed = now - createdAt;
+
+      if (elapsed < minimumWatchMs) {
         return res.status(429).json({
           success: false,
           error: "Please wait before counting this ad",
-          retryAfterMs: MIN_REWARDED_AD_MS - elapsed
+          retryAfterMs: minimumWatchMs - elapsed
         });
       }
 
@@ -981,12 +1056,15 @@ app.post(
         });
       }
 
+      /* Keep the required count fixed for this session.
+         Changing admin settings will not break an active session. */
+
       const required = Math.max(
         1,
         Math.min(
           100,
-          Number(video.adsRequired) ||
-          settings.ads.adsPerVideo
+          Number(session.required) ||
+          getVideoAdsRequired(video, settings)
         )
       );
 
@@ -994,14 +1072,13 @@ app.post(
         `users/${user.id}/videoAdProgress/${videoId}`
       );
 
-      let eventResult = null;
-
       const progressResult = await progressRef.transaction(current => {
         current = current || {};
         current.sessions = current.sessions || {};
 
+        /* A session marker prevents this session from counting twice. */
+
         if (current.sessions[sessionId]) {
-          eventResult = current.sessions[sessionId];
           return current;
         }
 
@@ -1018,31 +1095,34 @@ app.post(
         const event = {
           countedAt: countTime,
           unlocked,
-          required
+          required,
+          completed: unlocked ? required : completed,
+          remaining: unlocked
+            ? 0
+            : Math.max(0, required - completed)
         };
 
-        const sessions = current.sessions;
-        sessions[sessionId] = event;
+        current.sessions[sessionId] = event;
 
-        for (const [id, savedEvent] of Object.entries(sessions)) {
+        /* Keep recent session markers for idempotency. */
+
+        for (const [id, savedEvent] of Object.entries(current.sessions)) {
           if (
             Number(savedEvent?.countedAt || 0) <
             countTime - 24 * 60 * 60 * 1000
           ) {
-            delete sessions[id];
+            delete current.sessions[id];
           }
         }
-
-        eventResult = event;
 
         if (unlocked) {
           return {
             completed: 0,
             required,
-            sessions,
+            sessions: current.sessions,
 
             totalAdsCompleted:
-              (Number(current.totalAdsCompleted) || 0) + required,
+              (Number(current.totalAdsCompleted) || 0) + completed,
 
             totalUnlocks:
               (Number(current.totalUnlocks) || 0) + 1,
@@ -1057,7 +1137,7 @@ app.post(
           ...current,
           completed,
           required,
-          sessions,
+          sessions: current.sessions,
           lastCountAt: countTime,
           updatedAt: countTime
         };
@@ -1071,45 +1151,50 @@ app.post(
       }
 
       const updated = progressResult.snapshot.val() || {};
+      const eventResult = updated.sessions?.[sessionId];
 
-      await sessionRef.update({
-        status: "counted",
-        countedAt: Number(eventResult?.countedAt) || Date.now()
-      });
-
-      const unlocked = eventResult?.unlocked === true;
-
-      if (unlocked) {
-        console.log(
-          `Video unlocked: user=${user.id}, video=${videoId}`
-        );
-
-        return res.json({
-          success: true,
-          unlocked: true,
-          videoId,
-          completed: required,
-          required,
-          remaining: 0,
-          videoUrl: video.videoUrl,
-          message: "Video unlocked successfully"
+      if (!eventResult) {
+        return res.status(500).json({
+          success: false,
+          error: "Could not confirm ad count"
         });
       }
 
-      const completed = Math.max(
-        0,
-        Number(updated.completed) || 0
-      );
+      /* Save the exact response on the session.
+         If the client retries after a network failure, it receives
+         the same result without adding another ad count. */
 
-      res.json({
-        success: true,
-        unlocked: false,
-        videoId,
-        completed,
-        required,
-        remaining: Math.max(0, required - completed),
-        message: "Ad counted"
+      const responseResult = {
+        countedAt: Number(eventResult.countedAt) || Date.now(),
+        unlocked: eventResult.unlocked === true,
+        required: Number(eventResult.required) || required,
+        completed: Number(eventResult.completed) || 0,
+        remaining: Number(eventResult.remaining) || 0
+      };
+
+      await sessionRef.update({
+        status: "counted",
+        countedAt: responseResult.countedAt,
+        result: responseResult
       });
+
+      if (responseResult.unlocked) {
+        console.log(
+          `Video unlocked: user=${user.id}, video=${videoId}`
+        );
+      } else {
+        console.log(
+          `Video ad counted: user=${user.id}, video=${videoId}, completed=${responseResult.completed}/${responseResult.required}`
+        );
+      }
+
+      return res.json(
+        buildVideoAdCountResponse(
+          responseResult,
+          videoId,
+          video.videoUrl
+        )
+      );
     } catch (error) {
       console.error("Video ad count error:", error.message);
 
