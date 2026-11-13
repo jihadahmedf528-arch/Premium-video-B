@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -83,7 +84,23 @@ button{font-family:inherit;cursor:pointer}
 .player-title{font-size:16px;margin:17px 0 8px;overflow-wrap:anywhere}
 .player-note{color:#999;font-size:12px;line-height:1.6}
 .player-error{display:none;color:#ff7777;padding:15px;font-size:13px;line-height:1.6}
-@media(max-width:380px){.brand h2{font-size:16px}.brand small{font-size:10px}.logo{width:37px;height:37px}.header-actions{gap:5px}.credit-display{padding:9px 8px;font-size:11px}.refer-btn{padding:9px 10px;font-size:12px}}
+
+/* NOTIFICATION VIDEO FOCUS VIEW */
+.notification-video-view{background:#171313;border:1px solid #63302c;border-radius:17px;overflow:hidden;margin:12px 0 20px;box-shadow:0 8px 30px #0008}
+.notification-video-thumb{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#241919}
+.notification-video-content{padding:16px}
+.notification-video-label{display:inline-block;background:#3b1717;color:#ff9b75;border:1px solid #74312d;padding:6px 10px;border-radius:7px;font-size:11px;font-weight:bold;margin-bottom:12px}
+.notification-video-title{font-size:19px;line-height:1.5;margin:0 0 10px;overflow-wrap:anywhere}
+.notification-video-description{font-size:13px;line-height:1.7;color:#c8baba;white-space:pre-line;overflow-wrap:anywhere;margin:0 0 15px}
+.notification-video-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#c4aaaa;font-size:11px;margin-bottom:16px}
+.notification-video-actions{display:flex;flex-direction:column;gap:10px}
+.notification-video-actions button{width:100%;padding:14px 12px;border:0;border-radius:10px;font-size:13px;font-weight:bold}
+.notification-watch-btn{background:linear-gradient(100deg,#ff303d,#ff8126);color:#fff}
+.notification-credit-btn{background:linear-gradient(100deg,#a66b12,#e7a82d);color:#160e03}
+.notification-back-btn{background:#2b2020;border:1px solid #654040!important;color:#fff}
+.notification-video-actions button:disabled{opacity:.5;cursor:not-allowed}
+.notification-loading{padding:30px 15px;text-align:center;color:#c6aaaa}
+@media(max-width:380px){.brand h2{font-size:16px}.brand small{font-size:10px}.logo{width:37px;height:37px}.header-actions{gap:5px}.credit-display{padding:9px 8px;font-size:11px}.refer-btn{padding:9px 10px;font-size:12px}.notification-video-title{font-size:17px}}
 </style>
 </head>
 
@@ -132,13 +149,13 @@ button{font-family:inherit;cursor:pointer}
   </div>
 </div>
 
-<div class="section-title">📂 Video Categories</div>
+<div class="section-title" id="categoryHeading">📂 Video Categories</div>
 <div class="categories" id="categories"><button class="cat active" data-id="all">All Videos</button></div>
 
-<div class="section-title">🎬 Latest Videos</div>
+<div class="section-title" id="videoSectionHeading">🎬 Latest Videos</div>
 <div id="videoList"><div class="loading">Loading videos...</div></div>
 
-<div class="pagination">
+<div class="pagination" id="pagination">
   <button class="page-btn" id="prevBtn" onclick="changePage(-1)" disabled>← Previous</button>
   <span class="page-number" id="pageNumber">1 / 1</span>
   <button class="page-btn" id="nextBtn" onclick="changePage(1)" disabled>Next →</button>
@@ -183,6 +200,9 @@ let autoAdStarted=false,autoAdInitializing=false,autoAdRetryTimer=null,autoAdAtt
 let videoAdBusy=false,unlockBusy=false,currentPlayerUrl="",creditBalance=0;
 let popupBusy=false;
 let notificationVideoStarted=false;
+let notificationVideoMode=false;
+let notificationVideoData=null;
+let notificationAutoPlayTimer=null;
 
 const headers={
   "Content-Type":"application/json",
@@ -451,7 +471,13 @@ function renderCategories(){
     box.appendChild(btn);
   });
 }
-function selectCategory(id){currentCategory=id;currentPage=1;renderCategories();loadVideos()}
+function selectCategory(id){
+  leaveNotificationVideoView();
+  currentCategory=id;
+  currentPage=1;
+  renderCategories();
+  loadVideos();
+}
 
 /* LOAD VIDEOS */
 
@@ -551,16 +577,13 @@ function updatePagination(p){
 function changePage(direction){
   const next=currentPage+direction;
   if(next<1||next>totalPages)return;
-  currentPage=next;loadVideos();window.scrollTo({top:0,behavior:"smooth"});
+  leaveNotificationVideoView();
+  currentPage=next;
+  loadVideos();
+  window.scrollTo({top:0,behavior:"smooth"});
 }
 
-/* NOTIFICATION DEEP LINK
-   Supports:
-   1. ?videoId=VIDEO_ID&autoPlayAds=1
-   2. ?startapp=v_VIDEO_ID
-   3. Telegram WebApp start_param = v_VIDEO_ID
-   4. ?tgWebAppStartParam=v_VIDEO_ID
-*/
+/* NOTIFICATION DEEP LINK */
 
 function getNotificationVideoId(){
   const params=new URLSearchParams(window.location.search);
@@ -570,12 +593,23 @@ function getNotificationVideoId(){
     params.get("video_id")||
     params.get("startapp")||
     params.get("tgWebAppStartParam")||
+    params.get("start_param")||
     params.get("start")||
     tg?.initDataUnsafe?.start_param||
     "";
 
-  raw=String(raw).trim();
+  if(!raw&&window.location.hash){
+    const hash=window.location.hash.replace(/^#/,"");
+    const hashParams=new URLSearchParams(hash);
+    raw=
+      hashParams.get("videoId")||
+      hashParams.get("startapp")||
+      hashParams.get("tgWebAppStartParam")||
+      hashParams.get("start_param")||
+      "";
+  }
 
+  raw=String(raw).trim();
   if(!raw)return "";
 
   try{raw=decodeURIComponent(raw)}catch(e){}
@@ -587,7 +621,13 @@ function getNotificationVideoId(){
 
 function shouldAutoPlayNotificationVideo(){
   const params=new URLSearchParams(window.location.search);
-  return params.get("autoPlayAds")!=="0";
+  let value=params.get("autoPlayAds");
+
+  if(value===null&&window.location.hash){
+    value=new URLSearchParams(window.location.hash.replace(/^#/,"")).get("autoPlayAds");
+  }
+
+  return value!=="0";
 }
 
 async function findNotificationVideo(videoId){
@@ -612,11 +652,6 @@ async function findNotificationVideo(videoId){
       currentPage=page;
       videos=pageVideos;
       totalPages=data.pagination?.totalPages||1;
-
-      renderCategories();
-      renderVideos();
-      updatePagination(data.pagination);
-
       return found;
     }
 
@@ -627,6 +662,112 @@ async function findNotificationVideo(videoId){
   return null;
 }
 
+/* SHOW THE EXACT NOTIFIED VIDEO IN A LARGE FOCUSED VIEW */
+
+function renderNotificationVideo(video){
+  notificationVideoMode=true;
+  notificationVideoData=video;
+
+  document.getElementById("categoryHeading").style.display="none";
+  document.getElementById("categories").style.display="none";
+  document.getElementById("pagination").style.display="none";
+  document.getElementById("videoSectionHeading").textContent="🎬 তোমার নির্বাচিত ভিডিও";
+
+  const list=document.getElementById("videoList");
+  list.innerHTML="";
+
+  const view=document.createElement("div");
+  view.className="notification-video-view";
+
+  if(video.thumbnail){
+    const img=document.createElement("img");
+    img.className="notification-video-thumb";
+    img.src=video.thumbnail;
+    img.alt=video.title||"Video thumbnail";
+    img.onerror=()=>{img.style.display="none"};
+    view.appendChild(img);
+  }
+
+  const content=document.createElement("div");
+  content.className="notification-video-content";
+
+  const label=document.createElement("div");
+  label.className="notification-video-label";
+  label.textContent="▶ NOTIFICATION VIDEO";
+
+  const title=document.createElement("h2");
+  title.className="notification-video-title";
+  title.textContent=video.title||"Untitled Video";
+
+  const description=document.createElement("p");
+  description.className="notification-video-description";
+  description.textContent=video.description||"এই ভিডিওটি দেখতে নিচের Unlock বাটনে ক্লিক করো।";
+
+  const meta=document.createElement("div");
+  meta.className="notification-video-meta";
+
+  const category=(settings.categories||[]).find(c=>String(c.id)===String(video.categoryId));
+  const categoryTag=document.createElement("span");
+  categoryTag.className="tag";
+  categoryTag.textContent=category?.name||"Premium Video";
+
+  const ads=document.createElement("span");
+  ads.textContent=getVideoAdsRequired(video)+" Ads Required";
+  meta.append(categoryTag,ads);
+
+  const actions=document.createElement("div");
+  actions.className="notification-video-actions";
+
+  const watchAds=document.createElement("button");
+  watchAds.className="notification-watch-btn";
+  watchAds.textContent="▶ Watch Ads to Unlock";
+  watchAds.onclick=()=>startVideoAdsUnlock(video.id);
+
+  const useCredit=document.createElement("button");
+  useCredit.className="notification-credit-btn";
+  useCredit.textContent="🪙 Unlock with 1 Credit";
+  useCredit.onclick=()=>unlockVideoWithCredit(video.id);
+
+  const back=document.createElement("button");
+  back.className="notification-back-btn";
+  back.textContent="← Back to All Videos";
+  back.onclick=()=>{
+    if(notificationAutoPlayTimer){
+      clearTimeout(notificationAutoPlayTimer);
+      notificationAutoPlayTimer=null;
+    }
+    leaveNotificationVideoView();
+    renderCategories();
+    renderVideos();
+    updatePagination({totalPages});
+    window.scrollTo({top:0,behavior:"smooth"});
+  };
+
+  actions.append(watchAds,useCredit,back);
+  content.append(label,title,description,meta,actions);
+  view.appendChild(content);
+  list.appendChild(view);
+
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+
+function leaveNotificationVideoView(){
+  if(!notificationVideoMode)return;
+
+  if(notificationAutoPlayTimer){
+    clearTimeout(notificationAutoPlayTimer);
+    notificationAutoPlayTimer=null;
+  }
+
+  notificationVideoMode=false;
+  notificationVideoData=null;
+
+  document.getElementById("categoryHeading").style.display="";
+  document.getElementById("categories").style.display="";
+  document.getElementById("pagination").style.display="flex";
+  document.getElementById("videoSectionHeading").textContent="🎬 Latest Videos";
+}
+
 async function openNotificationVideo(){
   if(notificationVideoStarted)return;
 
@@ -635,11 +776,15 @@ async function openNotificationVideo(){
 
   notificationVideoStarted=true;
 
+  const list=document.getElementById("videoList");
+  list.innerHTML='<div class="notification-loading">নোটিফিকেশনের ভিডিওটি খোঁজা হচ্ছে...</div>';
+
   try{
     const video=await findNotificationVideo(videoId);
 
     if(!video){
       notificationVideoStarted=false;
+      list.innerHTML='<div class="empty">ভিডিওটি পাওয়া যায়নি।</div>';
       showModal(
         "Video Not Found",
         "নোটিফিকেশনের ভিডিওটি খুঁজে পাওয়া যায়নি। ভিডিওটি Admin Panel থেকে মুছে ফেলা হয়েছে কি না পরীক্ষা করো।"
@@ -647,26 +792,26 @@ async function openNotificationVideo(){
       return;
     }
 
-    const card=document.querySelector(
-      '.video-card[data-video-id="'+CSS.escape(String(videoId))+'"]'
-    );
+    renderNotificationVideo(video);
 
-    if(card){
-      setTimeout(()=>{
-        card.scrollIntoView({behavior:"smooth",block:"center"});
-      },150);
+    /*
+      autoPlayAds=1 থাকলে বড় ভিডিও ভিউ দেখানোর পর
+      আগের Monetag unlock process চালু হবে।
+      autoPlayAds=0 থাকলে ইউজার নিজে Watch Ads চাপবে।
+    */
+    if(shouldAutoPlayNotificationVideo()){
+      notificationAutoPlayTimer=setTimeout(()=>{
+        notificationAutoPlayTimer=null;
+        if(notificationVideoMode&&notificationVideoData&&String(notificationVideoData.id)===String(video.id)){
+          startVideoAdsUnlock(video.id);
+        }
+      },1200);
     }
-
-    if(!shouldAutoPlayNotificationVideo())return;
-
-    // Mini App লোড হওয়ার পর নির্দিষ্ট ভিডিওর আগের Monetag unlock flow চালু।
-    setTimeout(()=>{
-      startVideoAdsUnlock(video.id);
-    },700);
 
   }catch(e){
     console.error("Notification video open error:",e);
     notificationVideoStarted=false;
+    list.innerHTML='<div class="empty">ভিডিওটি ওপেন করা যায়নি। আবার চেষ্টা করো।</div>';
     showModal(
       "Video Open Failed",
       e.message||"নোটিফিকেশন থেকে ভিডিওটি ওপেন করা যায়নি। আবার চেষ্টা করো।"
@@ -736,7 +881,7 @@ async function unlockVideoWithCredit(videoId){
     if(!ok)return;
   }
 
-  const video=videos.find(v=>String(v.id)===String(videoId))||{};
+  const video=videos.find(v=>String(v.id)===String(videoId))||notificationVideoData||{};
   unlockBusy=true;
   setVideoButtonsDisabled(true,"⏳ Unlocking...");
 
@@ -904,7 +1049,7 @@ async function continueVideoAdsUnlock(videoId){
   try{
     await waitForMonetag();
 
-    const video=videos.find(v=>String(v.id)===String(videoId))||{};
+    const video=videos.find(v=>String(v.id)===String(videoId))||notificationVideoData||{};
     let completed=0;
     let required=getVideoAdsRequired(video);
 
@@ -991,7 +1136,7 @@ async function continueVideoAdsUnlock(videoId){
 }
 
 function setVideoButtonsDisabled(disabled,text){
-  document.querySelectorAll(".video-actions button").forEach(button=>{
+  document.querySelectorAll(".video-actions button,.notification-video-actions button").forEach(button=>{
     button.disabled=disabled;
     if(disabled&&text){
       if(!button.dataset.originalText)button.dataset.originalText=button.textContent;
@@ -1134,7 +1279,7 @@ async function init(){
 
   if(!autoAdStarted)initAutomaticAds();
 
-  // Notification deep link থাকলে নির্দিষ্ট ভিডিও খুঁজে বিজ্ঞাপন আনলক শুরু।
+  // নোটিফিকেশন থেকে এলে নির্দিষ্ট ভিডিওটি বড় করে দেখাবে।
   await openNotificationVideo();
 }
 
