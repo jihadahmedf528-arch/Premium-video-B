@@ -587,47 +587,51 @@ function changePage(direction){
 
 function getNotificationVideoId(){
   const params=new URLSearchParams(window.location.search);
+  const hashParams=new URLSearchParams(
+    window.location.hash.replace(/^#/,"")
+  );
 
   let raw=
+    tg?.initDataUnsafe?.start_param||
+    params.get("tgWebAppStartParam")||
+    params.get("startapp")||
+    params.get("start_param")||
     params.get("videoId")||
     params.get("video_id")||
-    params.get("startapp")||
-    params.get("tgWebAppStartParam")||
-    params.get("start_param")||
-    params.get("start")||
-    tg?.initDataUnsafe?.start_param||
+    hashParams.get("tgWebAppStartParam")||
+    hashParams.get("startapp")||
+    hashParams.get("start_param")||
+    hashParams.get("videoId")||
     "";
 
-  if(!raw&&window.location.hash){
-    const hash=window.location.hash.replace(/^#/,"");
-    const hashParams=new URLSearchParams(hash);
-    raw=
-      hashParams.get("videoId")||
-      hashParams.get("startapp")||
-      hashParams.get("tgWebAppStartParam")||
-      hashParams.get("start_param")||
-      "";
-  }
-
-  raw=String(raw).trim();
+  raw=String(raw||"").trim();
   if(!raw)return "";
 
   try{raw=decodeURIComponent(raw)}catch(e){}
 
+  raw=raw.trim();
+
   if(raw.startsWith("v_"))raw=raw.slice(2);
 
-  return raw.trim();
+  if(!/^[a-zA-Z0-9_-]{1,150}$/.test(raw)){
+    console.warn("Invalid notification video start parameter:",raw);
+    return "";
+  }
+
+  return raw;
 }
 
 function shouldAutoPlayNotificationVideo(){
   const params=new URLSearchParams(window.location.search);
-  let value=params.get("autoPlayAds");
+  const hashParams=new URLSearchParams(
+    window.location.hash.replace(/^#/,"")
+  );
 
-  if(value===null&&window.location.hash){
-    value=new URLSearchParams(window.location.hash.replace(/^#/,"")).get("autoPlayAds");
-  }
+  const value=
+    params.get("autoPlayAds")||
+    hashParams.get("autoPlayAds");
 
-  return value!=="0";
+  return value==="1";
 }
 
 async function findNotificationVideo(videoId){
