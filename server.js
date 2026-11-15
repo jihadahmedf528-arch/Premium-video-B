@@ -1,4 +1,3 @@
-
 const express = require("express");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
@@ -230,22 +229,20 @@ async function telegramRequest(method, body) {
   return result.result;
 }
 
-/* Direct video Mini App URL */
+/* Video Mini App startapp Deep Link */
 
-function buildVideoAppUrl(videoId) {
-  if (!WEB_APP_URL || !videoId) return "";
+function buildVideoStartAppUrl(videoId) {
+  if (!videoId) return "";
 
-  try {
-    const url = new URL(WEB_APP_URL);
+  const botUsername = String(
+    VIDEO_BOT_USERNAME || "viralbox9_bot"
+  ).replace(/^@/, "");
 
-    url.searchParams.set("videoId", String(videoId));
-    url.searchParams.set("autoPlayAds", "1");
+  if (!botUsername) return "";
 
-    return url.toString();
-  } catch (error) {
-    console.error("Invalid WEB_APP_URL:", error.message);
-    return "";
-  }
+  const startParam = `v_${String(videoId)}`;
+
+  return `https://t.me/${botUsername}?startapp=${encodeURIComponent(startParam)}`;
 }
 
 /* Save Telegram user */
@@ -873,9 +870,6 @@ app.post(
         Number(progress.completed) || 0
       );
 
-      /* Previously completed progress can unlock immediately
-         if the admin lowers the required ad count. */
-
       if (completed >= required) {
         return res.json({
           success: true,
@@ -999,9 +993,6 @@ app.post(
         });
       }
 
-      /* Return the saved result if this session was already counted.
-         This makes repeated requests safe and prevents duplicate counting. */
-
       if (session.status === "counted" && session.result) {
         return res.json(
           buildVideoAdCountResponse(
@@ -1056,9 +1047,6 @@ app.post(
         });
       }
 
-      /* Keep the required count fixed for this session.
-         Changing admin settings will not break an active session. */
-
       const required = Math.max(
         1,
         Math.min(
@@ -1075,8 +1063,6 @@ app.post(
       const progressResult = await progressRef.transaction(current => {
         current = current || {};
         current.sessions = current.sessions || {};
-
-        /* A session marker prevents this session from counting twice. */
 
         if (current.sessions[sessionId]) {
           return current;
@@ -1103,8 +1089,6 @@ app.post(
         };
 
         current.sessions[sessionId] = event;
-
-        /* Keep recent session markers for idempotency. */
 
         for (const [id, savedEvent] of Object.entries(current.sessions)) {
           if (
@@ -1159,10 +1143,6 @@ app.post(
           error: "Could not confirm ad count"
         });
       }
-
-      /* Save the exact response on the session.
-         If the client retries after a network failure, it receives
-         the same result without adding another ad count. */
 
       const responseResult = {
         countedAt: Number(eventResult.countedAt) || Date.now(),
@@ -1940,19 +1920,13 @@ app.get(
   }
 );
 
-/* Notify users about new video with direct Mini App button */
+/* Notify users about new video with direct Mini App startapp button */
 
 async function notifyAllUsers(video) {
   const snapshot = await db.ref("users").once("value");
   const users = snapshot.val() || {};
 
-  const directAppUrl = buildVideoAppUrl(video.id);
-
-  const botUsername = VIDEO_BOT_USERNAME.replace(/^@/, "");
-
-  const fallbackUrl = botUsername
-    ? `https://t.me/${botUsername}?start=v_${video.id}`
-    : "";
+  const videoAppUrl = buildVideoStartAppUrl(video.id);
 
   const title = String(video.title || "নতুন ভিডিও").slice(0, 200);
   const description = String(video.description || "").slice(0, 700);
@@ -1964,35 +1938,25 @@ async function notifyAllUsers(video) {
 
   const ids = Object.keys(users);
 
+  if (!videoAppUrl) {
+    console.error("Video Mini App Deep Link could not be created");
+    return 0;
+  }
+
+  const keyboard = {
+    inline_keyboard: [[
+      {
+        text: "▶️ ভিডিও দেখুন",
+        url: videoAppUrl
+      }
+    ]]
+  };
+
   for (let i = 0; i < ids.length; i += 20) {
     const batch = ids.slice(i, i + 20);
 
     await Promise.allSettled(batch.map(async id => {
       try {
-        let keyboard;
-
-        if (directAppUrl) {
-          keyboard = {
-            inline_keyboard: [[
-              {
-                text: "▶️ ভিডিও দেখুন",
-                web_app: {
-                  url: directAppUrl
-                }
-              }
-            ]]
-          };
-        } else if (fallbackUrl) {
-          keyboard = {
-            inline_keyboard: [[
-              {
-                text: "▶️ ভিডিও দেখুন",
-                url: fallbackUrl
-              }
-            ]]
-          };
-        }
-
         if (video.thumbnail) {
           try {
             await telegramRequest("sendPhoto", {
@@ -2312,7 +2276,7 @@ app.post("/api/telegram/webhook", async (req, res) => {
       }
     }
 
-    /* Open requested video from /start v_VIDEO_ID */
+    /* Legacy /start v_VIDEO_ID links now redirect to startapp Deep Link */
 
     const videoPayloadMatch =
       /^v_([a-zA-Z0-9_-]{1,150})$/.exec(payload);
@@ -2326,9 +2290,9 @@ app.post("/api/telegram/webhook", async (req, res) => {
         videoSnap.exists() &&
         videoSnap.val()?.enabled !== false
       ) {
-        const directAppUrl = buildVideoAppUrl(videoId);
+        const videoAppUrl = buildVideoStartAppUrl(videoId);
 
-        if (directAppUrl) {
+        if (videoAppUrl) {
           await telegramRequest("sendMessage", {
             chat_id: message.chat.id,
             text:
@@ -2338,9 +2302,7 @@ app.post("/api/telegram/webhook", async (req, res) => {
               inline_keyboard: [[
                 {
                   text: "▶️ ভিডিও দেখুন",
-                  web_app: {
-                    url: directAppUrl
-                  }
+                  url: videoAppUrl
                 }
               ]]
             }
@@ -2351,7 +2313,9 @@ app.post("/api/telegram/webhook", async (req, res) => {
       }
     }
 
-    const botUsername = VIDEO_BOT_USERNAME.replace(/^@/, "");
+    const botUsername = String(
+      VIDEO_BOT_USERNAME || "viralbox9_bot"
+    ).replace(/^@/, "");
 
     const referralLink = botUsername
       ? `https://t.me/${botUsername}?start=ref_${message.from.id}`
