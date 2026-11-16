@@ -1,3 +1,4 @@
+
 const express = require("express");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
@@ -11,9 +12,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN || "";
 const ADMIN_KEY = process.env.ADMIN_KEY || "";
 const DATABASE_URL = process.env.FIREBASE_DATABASE_URL || "";
 const WEB_APP_URL = process.env.WEB_APP_URL || "";
-const PUBLIC_URL = process.env.PUBLIC_URL || "";
 const VIDEO_BOT_USERNAME = process.env.VIDEO_BOT_USERNAME || "";
-const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || "";
 
 const MONETAG_ZONE_ID = "12187766";
 const MIN_REWARDED_AD_MS = 10000;
@@ -227,6 +226,38 @@ async function telegramRequest(method, body) {
   }
 
   return result.result;
+}
+
+/* Telegram Long Polling */
+
+let pollingRunning = false;
+let pollingOffset = 0;
+
+async function telegramGetUpdates() {
+  if (!BOT_TOKEN) throw new Error("BOT_TOKEN is missing");
+
+  const response = await fetch(
+    `https://api.telegram.org/bot${BOT_TOKEN}/getUpdates`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        offset: pollingOffset,
+        timeout: 25,
+        allowed_updates: ["message"]
+      })
+    }
+  );
+
+  const result = await response.json();
+
+  if (!response.ok || !result.ok) {
+    throw new Error(
+      result.description || `Telegram polling error (${response.status})`
+    );
+  }
+
+  return result.result || [];
 }
 
 /* Video Mini App startapp Deep Link */
@@ -532,6 +563,189 @@ async function recoverPendingReferralClaims() {
     console.error("Referral recovery error:", error.message);
   } finally {
     referralRecoveryRunning = false;
+  }
+}
+
+/* Process Telegram /start update */
+
+async function processTelegramUpdate(update) {
+  const message = update?.message;
+
+  if (!message || !message.from || !message.chat) return;
+
+  const text = String(message.text || "").trim();
+
+  if (!/^\/start(?:@\w+)?(?:\s|$)/.test(text)) return;
+
+  const parts = text.split(/\s+/);
+  const payload = parts[1] || "";
+
+  await saveTelegramUser(message.from, payload);
+
+  if (/^ref_\d{1,20}$/.test(payload)) {
+    const referralResult = await processReferral(
+      message.from.id,
+      payload
+    );
+
+    if (referralResult.success) {
+      try {
+        await telegramRequest("sendMessage", {
+          chat_id: referralResult.referrerId,
+          text:
+            `🎉 নতুন Referral!\n\n` +
+            `একজন বন্ধু তোমার Referral Link দিয়ে Start করেছে।\n` +
+            `তোমার অ্যাকাউন্টে ${referralResult.reward} Credit যোগ হয়েছে।`
+        });
+      } catch (notifyError) {
+        console.error(
+          "Referral notification failed:",
+          notifyError.message
+        );
+      }
+    } else if (
+      ![
+        "Already rewarded",
+        "Self referral",
+        "No referral",
+        "Referral disabled",
+        "User already referred",
+        "User already referred by another person",
+        "Referral claim mismatch"
+      ].includes(referralResult.reason)
+    ) {
+      console.error(
+        `Referral processing pending: user=${message.from.id}, reason=${referralResult.reason}`
+      );
+    }
+  }
+
+  /* Legacy /start v_VIDEO_ID links */
+
+  const videoPayloadMatch =
+    /^v_([a-zA-Z0-9_-]{1,150})$/.exec(payload);
+
+  if (videoPayloadMatch) {
+    const videoId = videoPayloadMatch[1];
+
+    const videoSnap = await db.ref(`videos/${videoId}`).once("value");
+
+    if (
+      videoSnap.exists() &&
+      videoSnap.val()?.enabled !== false
+    ) {
+      const videoAppUrl = buildVideoStartAppUrl(videoId);
+
+      if (videoAppUrl) {
+        await telegramRequest("sendMessage", {
+          chat_id: message.chat.id,
+          text:
+            `🎬 ${videoSnap.val().title || "ভিডিও"}\n\n` +
+            `নিচের বাটনে ক্লিক করলে সরাসরি এই ভিডিওটি খুলবে।`,
+          reply_markup: {
+            inline_keyboard: [[
+              {
+                text: "▶️ ভিডিও দেখুন",
+                url: videoAppUrl
+              }
+            ]]
+          }
+        });
+
+        return;
+      }
+    }
+  }
+
+  const botUsername = String(
+    VIDEO_BOT_USERNAME || "viralbox9_bot"
+  ).replace(/^@/, "");
+
+  const referralLink = botUsername
+    ? `https://t.me/${botUsername}?start=ref_${message.from.id}`
+    : "";
+
+  const keyboard = WEB_APP_URL
+    ? {
+        inline_keyboard: [[
+          {
+            text: "🎬 Open Premium Video",
+            web_app: { url: WEB_APP_URL }
+          }
+        ]]
+      }
+    : undefined;
+
+  let welcomeText =
+    "স্বাগতম Premium Video-তে! নিচের বাটনে Mini App খুলুন।";
+
+  if (referralLink) {
+    welcomeText += `\n\n🔗 তোমার Referral Link:\n${referralLink}`;
+  }
+
+  try {
+    await telegramRequest("sendMessage", {
+      chat_id: message.chat.id,
+      text: welcomeText,
+      reply_markup: keyboard
+    });
+  } catch (notifyError) {
+    console.error(
+      "Welcome message failed:",
+      notifyError.message
+    );
+  }
+}
+
+/* Start Telegram Polling */
+
+async function startTelegramPolling() {
+  if (pollingRunning) return;
+
+  if (!BOT_TOKEN) {
+    console.error("Polling stopped: BOT_TOKEN is missing");
+    return;
+  }
+
+  if (!firebaseReady) {
+    console.error("Polling stopped: Firebase is not connected");
+    return;
+  }
+
+  pollingRunning = true;
+
+  try {
+    await telegramRequest("deleteWebhook", {
+      drop_pending_updates: false
+    });
+
+    console.log("Old Telegram webhook removed");
+    console.log("Telegram Polling started");
+
+    while (pollingRunning) {
+      try {
+        const updates = await telegramGetUpdates();
+
+        for (const update of updates) {
+          try {
+            await processTelegramUpdate(update);
+          } catch (error) {
+            console.error(
+              `Telegram update processing failed: update=${update.update_id}, reason=${error.message}`
+            );
+          }
+
+          pollingOffset = Number(update.update_id) + 1;
+        }
+      } catch (error) {
+        console.error("Telegram polling error:", error.message);
+
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+    }
+  } catch (error) {
+    console.error("Could not start Telegram Polling:", error.message);
+    pollingRunning = false;
   }
 }
 
@@ -2202,187 +2416,6 @@ app.post(
   }
 );
 
-/* Telegram webhook */
-
-app.post("/api/telegram/webhook", async (req, res) => {
-  if (
-    WEBHOOK_SECRET &&
-    req.get("x-telegram-bot-api-secret-token") !== WEBHOOK_SECRET
-  ) {
-    return res.sendStatus(403);
-  }
-
-  if (!firebaseReady) {
-    return res.status(503).send("Firebase unavailable");
-  }
-
-  try {
-    const message = req.body?.message;
-
-    if (!message || !message.from || !message.chat) {
-      return res.sendStatus(200);
-    }
-
-    const text = String(message.text || "").trim();
-
-    if (!/^\/start(?:@\w+)?(?:\s|$)/.test(text)) {
-      return res.sendStatus(200);
-    }
-
-    const parts = text.split(/\s+/);
-    const payload = parts[1] || "";
-
-    const savedUser = await saveTelegramUser(
-      message.from,
-      payload
-    );
-
-    const referralParam = payload || savedUser.startParam || "";
-
-    if (referralParam.startsWith("ref_")) {
-      const referralResult = await processReferral(
-        message.from.id,
-        referralParam
-      );
-
-      if (referralResult.success) {
-        try {
-          await telegramRequest("sendMessage", {
-            chat_id: message.chat.id,
-            text:
-              `🎉 অভিনন্দন!\n\n` +
-              `তোমার Referral থেকে ${referralResult.reward} Credit যোগ হয়েছে।`
-          });
-        } catch (notifyError) {
-          console.error(
-            "Referral notification failed:",
-            notifyError.message
-          );
-        }
-      } else if (
-        ![
-          "Already rewarded",
-          "Self referral",
-          "No referral",
-          "Referral disabled",
-          "User already referred",
-          "User already referred by another person",
-          "Referral claim mismatch"
-        ].includes(referralResult.reason)
-      ) {
-        console.error(
-          `Referral processing pending: user=${message.from.id}, reason=${referralResult.reason}`
-        );
-      }
-    }
-
-    /* Legacy /start v_VIDEO_ID links now redirect to startapp Deep Link */
-
-    const videoPayloadMatch =
-      /^v_([a-zA-Z0-9_-]{1,150})$/.exec(payload);
-
-    if (videoPayloadMatch) {
-      const videoId = videoPayloadMatch[1];
-
-      const videoSnap = await db.ref(`videos/${videoId}`).once("value");
-
-      if (
-        videoSnap.exists() &&
-        videoSnap.val()?.enabled !== false
-      ) {
-        const videoAppUrl = buildVideoStartAppUrl(videoId);
-
-        if (videoAppUrl) {
-          await telegramRequest("sendMessage", {
-            chat_id: message.chat.id,
-            text:
-              `🎬 ${videoSnap.val().title || "ভিডিও"}\n\n` +
-              `নিচের বাটনে ক্লিক করলে সরাসরি এই ভিডিওটি খুলবে।`,
-            reply_markup: {
-              inline_keyboard: [[
-                {
-                  text: "▶️ ভিডিও দেখুন",
-                  url: videoAppUrl
-                }
-              ]]
-            }
-          });
-
-          return res.sendStatus(200);
-        }
-      }
-    }
-
-    const botUsername = String(
-      VIDEO_BOT_USERNAME || "viralbox9_bot"
-    ).replace(/^@/, "");
-
-    const referralLink = botUsername
-      ? `https://t.me/${botUsername}?start=ref_${message.from.id}`
-      : "";
-
-    const keyboard = WEB_APP_URL
-      ? {
-          inline_keyboard: [[
-            {
-              text: "🎬 Open Premium Video",
-              web_app: { url: WEB_APP_URL }
-            }
-          ]]
-        }
-      : undefined;
-
-    let welcomeText =
-      "স্বাগতম Premium Video-তে! নিচের বাটনে Mini App খুলুন।";
-
-    if (referralLink) {
-      welcomeText += `\n\n🔗 তোমার Referral Link:\n${referralLink}`;
-    }
-
-    try {
-      await telegramRequest("sendMessage", {
-        chat_id: message.chat.id,
-        text: welcomeText,
-        reply_markup: keyboard
-      });
-    } catch (notifyError) {
-      console.error(
-        "Welcome message failed:",
-        notifyError.message
-      );
-    }
-
-    return res.sendStatus(200);
-  } catch (error) {
-    console.error("Webhook processing error:", error.message);
-    return res.status(500).send("Webhook processing failed");
-  }
-});
-
-/* Setup Telegram webhook */
-
-async function setupWebhook() {
-  if (!BOT_TOKEN || !PUBLIC_URL || !WEBHOOK_SECRET) {
-    console.log("Webhook setup skipped: environment variables missing");
-    return;
-  }
-
-  try {
-    const url =
-      `${PUBLIC_URL.replace(/\/$/, "")}/api/telegram/webhook`;
-
-    await telegramRequest("setWebhook", {
-      url,
-      secret_token: WEBHOOK_SECRET,
-      allowed_updates: ["message"]
-    });
-
-    console.log("Telegram webhook configured");
-  } catch (error) {
-    console.error("Webhook setup failed:", error.message);
-  }
-}
-
 /* Home route */
 
 app.get("/", (req, res) => {
@@ -2394,7 +2427,9 @@ app.get("/", (req, res) => {
 app.listen(PORT, () => {
   console.log(`Premium Video server running on port ${PORT}`);
 
-  setupWebhook();
+  setTimeout(() => {
+    startTelegramPolling();
+  }, 2000);
 
   setTimeout(() => {
     recoverPendingReferralClaims();
