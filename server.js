@@ -669,7 +669,7 @@ async function processTelegramUpdate(update) {
     ? {
         inline_keyboard: [[
           {
-            text: "🎬 Open Premium Video",
+            text: "🎬▶️ ভিডিও দেখুন",
             web_app: { url: WEB_APP_URL }
           }
         ]]
