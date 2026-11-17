@@ -1,4 +1,3 @@
-
 const express = require("express");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
@@ -48,8 +47,8 @@ const DEFAULT_SETTINGS = {
     enabled: true,
     rewardPerReferral: 1,
     title: "🎁 Referral Program",
-    message: "বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো। তারা তোমার লিংক দিয়ে প্রথমবার Start করলেই তুমি Credit পাবে।",
-    instructions: "১. Referral Link কপি করো।\n২. বন্ধুদের সঙ্গে শেয়ার করো।\n৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।"
+    message: "বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো। তারা তোমার লিংক দিয়ে প্রথমবার Start করলেই তুমি Credit পাবে।",
+    instructions: "১. Referral Link কপি করো।\n২. বন্ধুদের সঙ্গে শেয়ার করো।\n৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।"
   },
 
   ads: {
@@ -182,25 +181,17 @@ function verifyTelegramInitData(initData) {
       return null;
     }
 
-    return JSON.parse(params.get("user") || "null");
+    const user = JSON.parse(params.get("user") || "null");
+
+    if (user) {
+      // Mini App "startapp" referral parameter (t.me/bot?startapp=ref_ID)
+      user.__startParam = params.get("start_param") || "";
+    }
+
+    return user;
   } catch {
     return null;
   }
-}
-
-function requireTelegramUser(req, res, next) {
-  const initData = req.get("x-telegram-init-data");
-  const user = verifyTelegramInitData(initData);
-
-  if (!user || !user.id) {
-    return res.status(401).json({
-      success: false,
-      error: "Invalid Telegram session"
-    });
-  }
-
-  req.telegramUser = user;
-  next();
 }
 
 /* Telegram API */
@@ -310,6 +301,44 @@ async function saveTelegramUser(user, startParam = "") {
     startParam: savedStartParam,
     userData: oldUser
   };
+}
+
+/* Telegram user middleware (also handles startapp referral) */
+
+async function requireTelegramUser(req, res, next) {
+  const initData = req.get("x-telegram-init-data");
+  const user = verifyTelegramInitData(initData);
+
+  if (!user || !user.id) {
+    return res.status(401).json({
+      success: false,
+      error: "Invalid Telegram session"
+    });
+  }
+
+  try {
+    const startParam = String(user.__startParam || "").trim();
+    const result = await saveTelegramUser(user, startParam);
+
+    if (result.isNewUser && /^ref_\d{1,20}$/.test(startParam)) {
+      const ref = await processReferral(user.id, startParam);
+
+      if (ref.success) {
+        telegramRequest("sendMessage", {
+          chat_id: ref.referrerId,
+          text:
+            `🎉 নতুন Referral!\n\n` +
+            `একজন বন্ধু তোমার Referral Link দিয়ে অ্যাপ খুলেছে।\n` +
+            `তোমার অ্যাকাউন্টে ${ref.reward} Credit যোগ হয়েছে।`
+        }).catch(() => {});
+      }
+    }
+  } catch (error) {
+    console.error("Referral middleware error:", error.message);
+  }
+
+  req.telegramUser = user;
+  next();
 }
 
 /* Referral system */
@@ -443,7 +472,8 @@ async function processReferral(newUserId, startParam = "") {
     const referrerRef = db.ref(`users/${referrerId}`);
 
     const referrerResult = await referrerRef.transaction(current => {
-      if (!current) return;
+      // Firebase first runs with null (local cache), then retries with real data
+      if (current === null) return current;
 
       current.referrals = current.referrals || {};
 
@@ -477,7 +507,7 @@ async function processReferral(newUserId, startParam = "") {
     }
 
     await newUserRef.transaction(current => {
-      if (!current) return;
+      if (current === null) return current;
 
       if (
         current.referredBy &&
@@ -594,8 +624,8 @@ async function processTelegramUpdate(update) {
           chat_id: referralResult.referrerId,
           text:
             `🎉 নতুন Referral!\n\n` +
-            `একজন বন্ধু তোমার Referral Link দিয়ে Start করেছে।\n` +
-            `তোমার অ্যাকাউন্টে ${referralResult.reward} Credit যোগ হয়েছে।`
+            `একজন বন্ধু তোমার Referral Link দিয়ে Start করেছে।\n` +
+            `তোমার অ্যাকাউন্টে ${referralResult.reward} Credit যোগ হয়েছে।`
         });
       } catch (notifyError) {
         console.error(
@@ -1468,15 +1498,23 @@ app.post(
 
       const creditRef = db.ref(`users/${user.id}/credits`);
 
+      let deducted = false;
+
       const transaction = await creditRef.transaction(current => {
+        deducted = false;
+
+        // Firebase first runs with null (local cache), then retries with real data
+        if (current === null) return current;
+
         const balance = Math.max(0, Number(current) || 0);
 
         if (balance < 1) return;
 
+        deducted = true;
         return balance - 1;
       });
 
-      if (!transaction.committed) {
+      if (!transaction.committed || !deducted) {
         const latestBalance = Math.max(
           0,
           Number(transaction.snapshot.val()) || 0
