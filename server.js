@@ -15,6 +15,7 @@ const VIDEO_BOT_USERNAME = process.env.VIDEO_BOT_USERNAME || "";
 
 const MONETAG_ZONE_ID = "12187766";
 const MIN_REWARDED_AD_MS = 10000;
+const VIDEO_AD_MIN_MS = 5000;
 const VIDEO_AD_SESSION_LIFETIME = 30 * 60 * 1000;
 
 let db;
@@ -1136,7 +1137,7 @@ app.post(
         userId: String(user.id),
         videoId,
         required,
-        minimumWatchMs: MIN_REWARDED_AD_MS,
+        minimumWatchMs: VIDEO_AD_MIN_MS,
         createdAt: now,
         expiresAt: now + VIDEO_AD_SESSION_LIFETIME,
         status: "pending"
@@ -1150,7 +1151,7 @@ app.post(
         completed,
         required,
         remaining: Math.max(0, required - completed),
-        minimumWatchMs: MIN_REWARDED_AD_MS,
+        minimumWatchMs: VIDEO_AD_MIN_MS,
         expiresAt: now + VIDEO_AD_SESSION_LIFETIME
       });
     } catch (error) {
@@ -1268,7 +1269,7 @@ app.post(
 
       const createdAt = Number(session.createdAt) || 0;
       const minimumWatchMs = Math.max(
-        MIN_REWARDED_AD_MS,
+        VIDEO_AD_MIN_MS,
         Number(session.minimumWatchMs) || 0
       );
 
@@ -1581,6 +1582,14 @@ app.get(
       const user = req.telegramUser;
 
       await saveTelegramUser(user);
+
+      // New app open: video ad progress starts again from zero
+      if (req.query.newSession === "1") {
+        await Promise.all([
+          db.ref(`users/${user.id}/videoAdProgress`).remove(),
+          db.ref(`videoAdSessions/${user.id}`).remove()
+        ]);
+      }
 
       const snapshot = await db.ref(`users/${user.id}`).once("value");
       const data = snapshot.val() || {};
