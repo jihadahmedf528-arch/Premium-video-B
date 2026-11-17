@@ -13,7 +13,7 @@ const DATABASE_URL = process.env.FIREBASE_DATABASE_URL || "";
 const WEB_APP_URL = process.env.WEB_APP_URL || "";
 const VIDEO_BOT_USERNAME = process.env.VIDEO_BOT_USERNAME || "";
 
-const MONETAG_ZONE_ID = "12187766";
+const MONETAG_ZONE_ID = "11846657";
 const MIN_REWARDED_AD_MS = 10000;
 const VIDEO_AD_MIN_MS = 5000;
 const VIDEO_AD_SESSION_LIFETIME = 30 * 60 * 1000;
@@ -258,7 +258,7 @@ function buildVideoStartAppUrl(videoId) {
   if (!videoId) return "";
 
   const botUsername = String(
-    VIDEO_BOT_USERNAME || "viralbox9_bot"
+    VIDEO_BOT_USERNAME || "lexaadsbot"
   ).replace(/^@/, "");
 
   if (!botUsername) return "";
@@ -689,7 +689,7 @@ async function processTelegramUpdate(update) {
   }
 
   const botUsername = String(
-    VIDEO_BOT_USERNAME || "viralbox9_bot"
+    VIDEO_BOT_USERNAME || "lexaadsbot"
   ).replace(/^@/, "");
 
   const referralLink = botUsername
