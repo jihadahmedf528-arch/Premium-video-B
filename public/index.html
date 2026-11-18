@@ -98,6 +98,11 @@ button{font-family:inherit;cursor:pointer}
 .notification-credit-btn{background:linear-gradient(100deg,#a66b12,#e7a82d);color:#160e03}
 .notification-back-btn{background:#2b2020;border:1px solid #654040!important;color:#fff}
 .notification-video-actions button:disabled{opacity:.5;cursor:not-allowed}
+.ad-progress{margin:0 0 12px}
+.ad-progress-bar{height:7px;background:#473025;border-radius:20px;overflow:hidden}
+.ad-progress-bar div{height:100%;width:0%;background:linear-gradient(90deg,var(--red),var(--orange));transition:width .3s}
+.ad-progress-text{display:flex;justify-content:space-between;color:#d7b8a5;font-size:11px;margin-top:5px}
+.toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:#17251a;border:1px solid #315c39;color:#bce8c2;padding:12px 18px;border-radius:10px;font-size:13px;z-index:300;display:none;max-width:90%;text-align:center}
 .notification-loading{padding:30px 15px;text-align:center;color:#c6aaaa}
 @media(max-width:380px){.brand h2{font-size:16px}.brand small{font-size:10px}.logo{width:37px;height:37px}.header-actions{gap:5px}.credit-display{padding:9px 8px;font-size:11px}.refer-btn{padding:9px 10px;font-size:12px}.notification-video-title{font-size:17px}}
 </style>
@@ -175,6 +180,8 @@ button{font-family:inherit;cursor:pointer}
   </div>
 </div>
 
+<div class="toast" id="toast"></div>
+
 <div class="modal-bg" id="modalBg" onclick="closeModal(event)">
   <div class="modal" onclick="event.stopPropagation()">
     <h3 id="modalTitle">Premium Video</h3>
@@ -199,6 +206,8 @@ let settings={},videos=[],rewardUrl="",rewardBusy=false,referralUrl="";
 let autoAdStarted=false,autoAdInitializing=false,autoAdRetryTimer=null,autoAdAttempts=0;
 let videoAdBusy=false,unlockBusy=false,currentPlayerUrl="",creditBalance=0;
 let popupBusy=false;
+let videoProgress={};
+let toastTimer=null;
 let notificationVideoStarted=false;
 let notificationVideoMode=false;
 let notificationVideoData=null;
@@ -217,6 +226,44 @@ function showModal(title,text,copyButton=false){
 }
 function hideModal(){document.getElementById("modalBg").style.display="none"}
 function closeModal(e){if(e.target.id==="modalBg")hideModal()}
+
+function showToast(text){
+  const el=document.getElementById("toast");
+  el.textContent=text;
+  el.style.display="block";
+  if(toastTimer)clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{el.style.display="none";toastTimer=null},3000);
+}
+
+function paintProgress(box,video){
+  const p=videoProgress[String(video.id)]||{};
+  const required=Math.max(1,Number(p.required)||getVideoAdsRequired(video));
+  const completed=Math.min(required,Math.max(0,Number(p.completed)||0));
+  const percent=Math.floor(completed/required*100);
+  box.querySelector(".ad-progress-bar div").style.width=percent+"%";
+  const spans=box.querySelectorAll(".ad-progress-text span");
+  spans[0].textContent=completed+" / "+required+" Ads";
+  spans[1].textContent=percent+"%";
+}
+
+function makeProgressBox(video){
+  const box=document.createElement("div");
+  box.className="ad-progress";
+  box.dataset.videoId=String(video.id);
+  box.innerHTML='<div class="ad-progress-bar"><div></div></div><div class="ad-progress-text"><span></span><span></span></div>';
+  paintProgress(box,video);
+  return box;
+}
+
+function setVideoProgress(videoId,completed,required){
+  const id=String(videoId);
+  videoProgress[id]={completed:Number(completed)||0,required:Math.max(1,Number(required)||1)};
+  const video=videos.find(v=>String(v.id)===id)||
+    (notificationVideoData&&String(notificationVideoData.id)===id?notificationVideoData:{id:id});
+  document.querySelectorAll(".ad-progress").forEach(box=>{
+    if(box.dataset.videoId===id)paintProgress(box,video);
+  });
+}
 
 async function copyText(text){
   try{
@@ -413,10 +460,7 @@ async function showVideoUnlockAd(completed,required,minimumWatchMs){
   const totalSeconds=Math.ceil(watchMs/1000);
 
   for(let remaining=totalSeconds;remaining>0;remaining--){
-    showModal(
-      "📺 Video Unlock",
-      `বিজ্ঞাপন দেখার সময় চলছে।\n\n📊 Ad Progress: ${completed} / ${required}\n\n⏳ বাকি সময়: ${remaining} সেকেন্ড`
-    );
+    setVideoButtonsDisabled(true,"⏳ "+remaining+"s");
     await new Promise(resolve=>setTimeout(resolve,1000));
   }
 }
@@ -558,7 +602,7 @@ function renderVideos(){
     useCredit.onclick=()=>unlockVideoWithCredit(video.id);
 
     actions.append(watchAds,useCredit);
-    content.append(title,meta,actions);
+    content.append(title,meta,makeProgressBox(video),actions);
     card.append(img,content);
     list.appendChild(card);
   });
@@ -744,7 +788,7 @@ function renderNotificationVideo(video){
   };
 
   actions.append(watchAds,useCredit,back);
-  content.append(label,title,description,meta,actions);
+  content.append(label,title,description,meta,makeProgressBox(video),actions);
   view.appendChild(content);
   list.appendChild(view);
 
@@ -1052,11 +1096,13 @@ async function continueVideoAdsUnlock(videoId){
 
     let completed=Number(sessionData.completed)||0;
     required=Math.max(1,Number(sessionData.required)||required);
+    setVideoProgress(videoId,completed,required);
 
     if(sessionData.unlocked){
       if(!sessionData.videoUrl){
         throw new Error("ভিডিওর URL পাওয়া যায়নি। Admin Panel-এ Video URL পরীক্ষা করো।");
       }
+      setVideoProgress(videoId,0,required);
       hideModal();
       openVideoPlayer(sessionData.videoUrl,video.title||"Premium Video");
       return;
@@ -1069,10 +1115,7 @@ async function continueVideoAdsUnlock(videoId){
     // একবার চাপলে মাত্র একটি বিজ্ঞাপন দেখাবে
     await showVideoUnlockAd(completed,required,sessionData.minimumWatchMs);
 
-    showModal(
-      "⏳ Counting Ad",
-      `Ad Progress: ${completed} / ${required}\n\nসময় পূর্ণ হয়েছে। বিজ্ঞাপন গণনা করা হচ্ছে...`
-    );
+    setVideoButtonsDisabled(true,"⏳ Counting...");
 
     const countData=await countVideoAdSession(videoId,sessionData.sessionId);
 
@@ -1083,15 +1126,15 @@ async function continueVideoAdsUnlock(videoId){
       if(!countData.videoUrl){
         throw new Error("ভিডিওর লিংক পাওয়া যায়নি। Admin Panel-এ Video URL পরীক্ষা করো।");
       }
+      setVideoProgress(videoId,0,required);
       hideModal();
       openVideoPlayer(countData.videoUrl,video.title||"Premium Video");
       return;
     }
 
-    showModal(
-      "✅ Ad Counted",
-      `একটি বিজ্ঞাপন গণনা হয়েছে।\n\n📊 Ad Progress: ${completed} / ${required}\n\nআরও ${Math.max(0,required-completed)}টি বিজ্ঞাপন বাকি। পরের বিজ্ঞাপন দেখতে আবার "Watch Ads to Unlock" বাটনে চাপো।\n\n⚠️ Mini App বন্ধ করলে Progress আবার শুরু থেকে হবে।`
-    );
+    setVideoProgress(videoId,completed,required);
+    hideModal();
+    showToast("✅ বিজ্ঞাপন দেখা সফল হয়েছে ("+completed+" / "+required+")");
   }catch(e){
     console.error("Video ad session error:",e);
     showModal("Video Unlock Failed",e.message||"ভিডিও আনলক করা যায়নি।");
