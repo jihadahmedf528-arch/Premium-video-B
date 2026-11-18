@@ -358,17 +358,14 @@ async function runPopupBeforeAction(type,requestVar){
 
   popupBusy=true;
   try{
-    showModal("📢 Please wait","Rewarded Popup প্রস্তুত হচ্ছে...");
     await showRewardedPopup(requestVar);
-    hideModal();
-    return true;
   }catch(e){
+    // Popup এর কোনো মেসেজ দেখানো হবে না; কাজ চালু থাকবে
     console.warn("Rewarded Popup error:",e);
-    showModal("Popup Unavailable","বিজ্ঞাপনটি সম্পন্ন করা যায়নি। আবার চেষ্টা করো।");
-    return false;
   }finally{
     popupBusy=false;
   }
+  return true;
 }
 
 /* AUTOMATIC IN-APP INTERSTITIAL */
@@ -436,7 +433,7 @@ async function showRewardedMonetag(requestVar){
 
 /* VIDEO REWARDED AD DISPLAY */
 
-async function showVideoUnlockAd(completed,required,minimumWatchMs){
+async function showVideoUnlockAd(completed,required,minimumWatchMs,videoId){
   await waitForMonetag();
 
   const showAd=window["show_"+MONETAG_ZONE_ID];
@@ -460,7 +457,7 @@ async function showVideoUnlockAd(completed,required,minimumWatchMs){
   const totalSeconds=Math.ceil(watchMs/1000);
 
   for(let remaining=totalSeconds;remaining>0;remaining--){
-    setVideoButtonsDisabled(true,"⏳ "+remaining+"s");
+    setVideoButtonsDisabled(true,"⏳ "+remaining+"s",videoId);
     await new Promise(resolve=>setTimeout(resolve,1000));
   }
 }
@@ -722,6 +719,7 @@ function renderNotificationVideo(video){
 
   const view=document.createElement("div");
   view.className="notification-video-view";
+  view.dataset.videoId=String(video.id);
 
   if(video.thumbnail){
     const img=document.createElement("img");
@@ -919,7 +917,7 @@ async function unlockVideoWithCredit(videoId){
 
   const video=videos.find(v=>String(v.id)===String(videoId))||notificationVideoData||{};
   unlockBusy=true;
-  setVideoButtonsDisabled(true,"⏳ Unlocking...");
+  setVideoButtonsDisabled(true,"⏳ Unlocking...",videoId,"credit");
 
   try{
     const res=await fetch(API+"/api/credits/unlock",{
@@ -1084,7 +1082,7 @@ async function continueVideoAdsUnlock(videoId){
   if(videoAdBusy||unlockBusy||rewardBusy)return;
 
   videoAdBusy=true;
-  setVideoButtonsDisabled(true,"⏳ Preparing...");
+  setVideoButtonsDisabled(true,"⏳ Preparing...",videoId);
 
   try{
     await waitForMonetag();
@@ -1113,9 +1111,9 @@ async function continueVideoAdsUnlock(videoId){
     }
 
     // একবার চাপলে মাত্র একটি বিজ্ঞাপন দেখাবে
-    await showVideoUnlockAd(completed,required,sessionData.minimumWatchMs);
+    await showVideoUnlockAd(completed,required,sessionData.minimumWatchMs,videoId);
 
-    setVideoButtonsDisabled(true,"⏳ Counting...");
+    setVideoButtonsDisabled(true,"⏳ Counting...",videoId);
 
     const countData=await countVideoAdSession(videoId,sessionData.sessionId);
 
@@ -1144,10 +1142,18 @@ async function continueVideoAdsUnlock(videoId){
   }
 }
 
-function setVideoButtonsDisabled(disabled,text){
+function setVideoButtonsDisabled(disabled,text,videoId,kind){
   document.querySelectorAll(".video-actions button,.notification-video-actions button").forEach(button=>{
     button.disabled=disabled;
-    if(disabled&&text){
+
+    const isWatch=button.classList.contains("unlock-btn")||button.classList.contains("notification-watch-btn");
+    const isCredit=button.classList.contains("credit-unlock-btn")||button.classList.contains("notification-credit-btn");
+    const owner=button.closest("[data-video-id]");
+
+    const mine=videoId!==undefined&&owner&&owner.dataset.videoId===String(videoId)&&
+      ((kind==="credit"&&isCredit)||(kind!=="credit"&&isWatch));
+
+    if(disabled&&text&&mine){
       if(!button.dataset.originalText)button.dataset.originalText=button.textContent;
       button.textContent=text;
     }else if(!disabled&&button.dataset.originalText){
