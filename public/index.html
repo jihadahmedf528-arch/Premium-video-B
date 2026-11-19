@@ -435,16 +435,13 @@ async function showRewardedMonetag(requestVar){
 
 /* VIDEO REWARDED AD DISPLAY */
 
-async function showVideoUnlockAd(completed,required,minimumWatchMs,videoId){
-  await waitForMonetag();
-
+function launchVideoUnlockAd(){
   const showAd=window["show_"+MONETAG_ZONE_ID];
-  const ymid=makeYmid();
 
   try{
     const adResult=showAd({
       type:"end",
-      ymid:ymid,
+      ymid:makeYmid(),
       requestVar:"video_unlock"
     });
 
@@ -454,7 +451,9 @@ async function showVideoUnlockAd(completed,required,minimumWatchMs,videoId){
   }catch(e){
     console.warn("Video rewarded ad launch error:",e);
   }
+}
 
+async function runVideoAdCountdown(minimumWatchMs,videoId){
   const watchMs=Math.max(VIDEO_AD_MIN_MS,Number(minimumWatchMs)||VIDEO_AD_MIN_MS);
   const totalSeconds=Math.ceil(watchMs/1000);
 
@@ -1089,20 +1088,24 @@ async function startVideoAdsUnlock(videoId){
     return;
   }
 
-  if(popupEnabledFor("video")){
-    const ok=await runPopupBeforeAction("video","video_unlock_popup");
-    if(!ok)return;
-  }
-
   if(!rewardedInterstitialEnabled()){
     showModal("Video Ads Disabled","Admin Panel থেকে Video Rewarded Interstitial বন্ধ রাখা হয়েছে।");
     return;
   }
 
-  await continueVideoAdsUnlock(videoId);
+  // Session আগেই তৈরি শুরু হয়, পপআপ চলার সময় পেছনে সম্পন্ন হবে
+  const sessionPromise=createVideoAdSession(videoId);
+  sessionPromise.catch(()=>{});
+
+  if(popupEnabledFor("video")){
+    const ok=await runPopupBeforeAction("video","video_unlock_popup");
+    if(!ok)return;
+  }
+
+  await continueVideoAdsUnlock(videoId,sessionPromise);
 }
 
-async function continueVideoAdsUnlock(videoId){
+async function continueVideoAdsUnlock(videoId,sessionPromise){
   if(videoAdBusy||unlockBusy||rewardBusy)return;
 
   videoAdBusy=true;
@@ -1114,7 +1117,10 @@ async function continueVideoAdsUnlock(videoId){
     const video=videos.find(v=>String(v.id)===String(videoId))||notificationVideoData||{};
     let required=getVideoAdsRequired(video);
 
-    const sessionData=await createVideoAdSession(videoId);
+    // বিজ্ঞাপন সঙ্গে সঙ্গে চালু হবে
+    launchVideoUnlockAd();
+
+    const sessionData=await (sessionPromise||createVideoAdSession(videoId));
 
     let completed=Number(sessionData.completed)||0;
     required=Math.max(1,Number(sessionData.required)||required);
@@ -1135,7 +1141,7 @@ async function continueVideoAdsUnlock(videoId){
     }
 
     // একবার চাপলে মাত্র একটি বিজ্ঞাপন দেখাবে
-    await showVideoUnlockAd(completed,required,sessionData.minimumWatchMs,videoId);
+    await runVideoAdCountdown(sessionData.minimumWatchMs,videoId);
 
     setVideoButtonsDisabled(true,"⏳ Counting...",videoId);
 
