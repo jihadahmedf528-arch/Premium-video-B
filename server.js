@@ -2183,7 +2183,7 @@ app.get(
 
 /* Notify users about new video with direct Mini App startapp button */
 
-async function notifyAllUsers(video) {
+async function notifyAllUsers(video, options = {}) {
   const snapshot = await db.ref("users").once("value");
   const users = snapshot.val() || {};
 
@@ -2192,10 +2192,12 @@ async function notifyAllUsers(video) {
   const title = String(video.title || "নতুন ভিডিও").slice(0, 200);
   const description = String(video.description || "").slice(0, 700);
 
-  const caption =
-    `🎬 ${title}\n\n` +
-    (description ? `${description}\n\n` : "") +
-    `📺 Premium Video-তে দেখতে নিচের বাটনে ক্লিক করো।`;
+  // Edited-video notification: only the saved title (no extra words)
+  const caption = options.titleOnly
+    ? title
+    : `🎬 ${title}\n\n` +
+      (description ? `${description}\n\n` : "") +
+      `📺 Premium Video-তে দেখতে নিচের বাটনে ক্লিক করো।`;
 
   const ids = Object.keys(users);
 
@@ -2386,7 +2388,28 @@ app.put(
 
       await ref.update(updates);
 
-      res.json({ success: true, message: "Video updated" });
+      // Notify users again after an edit: same title + thumbnail, no extra text
+      let notifiedUsers = 0;
+
+      try {
+        const latestSnap = await ref.once("value");
+        const latest = latestSnap.val() || {};
+
+        if (latest.enabled !== false) {
+          notifiedUsers = await notifyAllUsers(
+            { id: req.params.id, ...latest },
+            { titleOnly: true }
+          );
+        }
+      } catch (error) {
+        console.error("Edit notification error:", error.message);
+      }
+
+      res.json({
+        success: true,
+        notifiedUsers,
+        message: "Video updated"
+      });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }
