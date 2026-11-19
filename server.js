@@ -1074,8 +1074,6 @@ app.post(
         });
       }
 
-      await saveTelegramUser(user);
-
       const [videoSnap, settingsSnap, progressSnap] = await Promise.all([
         db.ref(`videos/${videoId}`).once("value"),
         db.ref("settings").once("value"),
@@ -1190,8 +1188,6 @@ app.post(
           error: "Invalid ad session"
         });
       }
-
-      await saveTelegramUser(user);
 
       const sessionRef = db.ref(
         `videoAdSessions/${user.id}/${sessionId}`
@@ -1475,8 +1471,6 @@ app.post(
           error: "Invalid video ID"
         });
       }
-
-      await saveTelegramUser(user);
 
       const videoRef = db.ref(`videos/${videoId}`);
       const videoSnap = await videoRef.once("value");
