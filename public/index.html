@@ -1097,12 +1097,23 @@ async function startVideoAdsUnlock(videoId){
   const sessionPromise=createVideoAdSession(videoId);
   sessionPromise.catch(()=>{});
 
-  if(popupEnabledFor("video")){
-    const ok=await runPopupBeforeAction("video","video_unlock_popup");
-    if(!ok)return;
-  }
+  // চাপার সঙ্গে সঙ্গে বাটনে Preparing দেখাবে
+  setVideoButtonsDisabled(true,"⏳ Preparing...",videoId);
 
-  await continueVideoAdsUnlock(videoId,sessionPromise);
+  try{
+    // পপআপ একটি পর একটি আসবে: ১ম বার নয়, ২য় বার হ্যাঁ, ৩য় বার নয়, ৪র্থ বার হ্যাঁ...
+    const doneSoFar=Number(videoProgress[String(videoId)]?.completed)||0;
+    const popupTurn=(doneSoFar+1)%2===0;
+
+    if(popupTurn&&popupEnabledFor("video")){
+      const ok=await runPopupBeforeAction("video","video_unlock_popup");
+      if(!ok)return;
+    }
+
+    await continueVideoAdsUnlock(videoId,sessionPromise);
+  }finally{
+    setVideoButtonsDisabled(false);
+  }
 }
 
 async function continueVideoAdsUnlock(videoId,sessionPromise){
