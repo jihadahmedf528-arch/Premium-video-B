@@ -275,16 +275,18 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 
 <div class="panel">
 <div class="row" style="align-items:center">
-<h3 style="margin:0">📺 Manage Videos</h3>
+<h3 style="margin:0">📺 Manage Videos <small id="videoCount"></small></h3>
 <button class="secondary" onclick="loadVideos()">Refresh</button>
+<button class="secondary" id="toggleVideos" onclick="toggleVideoList()">See All</button>
 </div>
-<div id="videoList" class="muted" style="margin-top:15px">Loading...</div>
+<div id="videoList" class="muted" style="margin-top:15px;display:none">Loading...</div>
 </div>
 
 <div class="panel" id="notificationPanel">
 <div class="row" style="align-items:center">
 <h3 style="margin:0">🔔 Notification Status</h3>
 <button class="secondary" onclick="loadNotifications()">Refresh</button>
+<button class="danger" onclick="clearFinishedNotifications()">🧹 Clear Finished</button>
 </div>
 <p class="note" style="margin-top:10px">ভিডিও যোগ বা এডিট করলে নোটিফিকেশন ব্যাকগ্রাউন্ডে যায়। এখানে দেখা যাবে কতজনকে পাঠানো হলো আর কতজনকে হলো না।</p>
 <div id="notificationList" class="muted">Loading...</div>
@@ -596,6 +598,14 @@ async function saveCategories(){
  }
 }
 
+let videosVisible=false;
+
+function toggleVideoList(){
+ videosVisible=!videosVisible;
+ document.getElementById("videoList").style.display=videosVisible?"block":"none";
+ document.getElementById("toggleVideos").textContent=videosVisible?"Hide":"See All";
+}
+
 async function loadVideos(){
  const box=document.getElementById("videoList");
  box.textContent="Loading videos...";
@@ -603,6 +613,8 @@ async function loadVideos(){
  try{
   const d=await api("/api/admin/videos");
   box.innerHTML="";
+
+  document.getElementById("videoCount").textContent="("+((d.videos||[]).length)+")";
 
   if(!d.videos||!d.videos.length){
    box.textContent="No videos found";return;
@@ -781,7 +793,21 @@ function renderNotifications(jobs){
   left.appendChild(makeEl("div","njob-meta",
    (job.type==="edit"?"এডিট নোটিফিকেশন":"নতুন ভিডিও")+" • "+formatTime(job.createdAt)));
   top.appendChild(left);
-  top.appendChild(makeEl("span","nbadge nb-"+job.status,NOTIFICATION_STATUS[job.status]||job.status));
+  const right=makeEl("div");
+  right.style.display="flex";
+  right.style.gap="6px";
+  right.style.alignItems="center";
+  right.appendChild(makeEl("span","nbadge nb-"+job.status,NOTIFICATION_STATUS[job.status]||job.status));
+
+  if(job.status!=="running"&&job.status!=="queued"){
+   const del=makeEl("button","danger","🗑 Delete");
+   del.style.padding="5px 9px";
+   del.style.fontSize="11px";
+   del.onclick=()=>deleteNotification(job.id);
+   right.appendChild(del);
+  }
+
+  top.appendChild(right);
   card.appendChild(top);
 
   const total=Number(job.total)||0;
@@ -814,6 +840,29 @@ function renderNotifications(jobs){
 
   box.appendChild(card);
  });
+}
+
+async function deleteNotification(id){
+ if(!confirm("এই নোটিফিকেশন রেকর্ডটি মুছে ফেলবে?")) return;
+
+ try{
+  await api("/api/admin/notifications/"+encodeURIComponent(id),{method:"DELETE"});
+  await loadNotifications();
+ }catch(e){
+  alert(e.message);
+ }
+}
+
+async function clearFinishedNotifications(){
+ if(!confirm("সম্পন্ন, ব্যর্থ ও বন্ধ হয়ে যাওয়া সব রেকর্ড মুছে ফেলবে? (যেগুলো এখনো চলছে সেগুলো থাকবে)")) return;
+
+ try{
+  const d=await api("/api/admin/notifications",{method:"DELETE"});
+  await loadNotifications();
+  alert((d.deleted||0)+"টি রেকর্ড মুছে ফেলা হয়েছে।");
+ }catch(e){
+  alert(e.message);
+ }
 }
 
 async function loadNotifications(){
