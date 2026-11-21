@@ -2175,13 +2175,90 @@ app.get(
   }
 );
 
-/* Notify users about new video with direct Mini App startapp button */
+/* Notifications: run in background with live status */
 
-async function notifyAllUsers(video, options = {}) {
-  const snapshot = await db.ref("users").once("value");
-  const users = snapshot.val() || {};
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+const NOTIFY_BATCH_SIZE = 20;
+const NOTIFY_BATCH_DELAY_MS = 1000;
+const MAX_JOBS_IN_MEMORY = 30;
+
+const notificationJobs = new Map();
+let notificationQueue = Promise.resolve();
+
+function isBlockedError(message) {
+  return /blocked|chat not found|deactivated/i.test(String(message || ""));
+}
+
+function getRetryAfterMs(message) {
+  const match = /retry after (\d+)/i.exec(String(message || ""));
+  if (!match) return 0;
+  return Math.min(30, Number(match[1]) + 1) * 1000;
+}
+
+function saveNotificationJob(job) {
+  return db.ref(`notificationJobs/${job.id}`).set(job).catch(error => {
+    console.error("Notification job save failed:", error.message);
+  });
+}
+
+async function sendNotificationToUser(id, video, caption, keyboard) {
+  const attempt = async () => {
+    if (video.thumbnail) {
+      try {
+        await telegramRequest("sendPhoto", {
+          chat_id: id,
+          photo: video.thumbnail,
+          caption,
+          reply_markup: keyboard
+        });
+
+        return;
+      } catch (photoError) {
+        if (
+          isBlockedError(photoError.message) ||
+          getRetryAfterMs(photoError.message)
+        ) {
+          throw photoError;
+        }
+
+        console.error(
+          `Thumbnail notification failed for ${id}:`,
+          photoError.message
+        );
+      }
+    }
+
+    await telegramRequest("sendMessage", {
+      chat_id: id,
+      text: caption,
+      reply_markup: keyboard,
+      disable_web_page_preview: false
+    });
+  };
+
+  try {
+    await attempt();
+  } catch (error) {
+    const waitMs = getRetryAfterMs(error.message);
+
+    if (!waitMs) throw error;
+
+    await sleep(waitMs);
+    await attempt();
+  }
+}
+
+async function runNotificationJob(job, video, options) {
+  job.status = "running";
+  job.startedAt = Date.now();
+  await saveNotificationJob(job);
 
   const videoAppUrl = buildVideoStartAppUrl(video.id);
+
+  if (!videoAppUrl) {
+    throw new Error("Video Mini App Deep Link could not be created");
+  }
 
   const title = String(video.title || "নতুন ভিডিও").slice(0, 200);
   const description = String(video.description || "").slice(0, 700);
@@ -2193,13 +2270,6 @@ async function notifyAllUsers(video, options = {}) {
       (description ? `${description}\n\n` : "") +
       `📺 Premium Video-তে দেখতে নিচের বাটনে ক্লিক করো।`;
 
-  const ids = Object.keys(users);
-
-  if (!videoAppUrl) {
-    console.error("Video Mini App Deep Link could not be created");
-    return 0;
-  }
-
   const keyboard = {
     inline_keyboard: [[
       {
@@ -2209,47 +2279,190 @@ async function notifyAllUsers(video, options = {}) {
     ]]
   };
 
-  for (let i = 0; i < ids.length; i += 20) {
-    const batch = ids.slice(i, i + 20);
+  const snapshot = await db.ref("users").once("value");
+  const users = snapshot.val() || {};
+  const allIds = Object.keys(users);
 
-    await Promise.allSettled(batch.map(async id => {
+  // Users who already blocked the bot are skipped
+  const ids = allIds.filter(id => users[id] && users[id].blocked !== true);
+
+  job.total = ids.length;
+  job.skipped = allIds.length - ids.length;
+  await saveNotificationJob(job);
+
+  for (let i = 0; i < ids.length; i += NOTIFY_BATCH_SIZE) {
+    const batch = ids.slice(i, i + NOTIFY_BATCH_SIZE);
+
+    await Promise.all(batch.map(async id => {
       try {
-        if (video.thumbnail) {
-          try {
-            await telegramRequest("sendPhoto", {
-              chat_id: id,
-              photo: video.thumbnail,
-              caption,
-              reply_markup: keyboard
-            });
+        await sendNotificationToUser(id, video, caption, keyboard);
+        job.sent++;
+      } catch (error) {
+        job.failed++;
 
-            return;
-          } catch (photoError) {
-            console.error(
-              `Thumbnail notification failed for ${id}:`,
-              photoError.message
-            );
+        if (isBlockedError(error.message)) {
+          job.blocked++;
+          db.ref(`users/${id}`).update({ blocked: true }).catch(() => {});
+        } else {
+          job.otherFailed++;
+
+          if (job.errors.length < 5) {
+            job.errors.push(String(error.message).slice(0, 200));
           }
         }
-
-        await telegramRequest("sendMessage", {
-          chat_id: id,
-          text: caption,
-          reply_markup: keyboard,
-          disable_web_page_preview: false
-        });
-      } catch (error) {
-        if (/blocked|chat not found|deactivated/i.test(error.message)) {
-          await db.ref(`users/${id}`).update({ blocked: true });
-        } else {
-          console.error(`Notification failed for ${id}:`, error.message);
-        }
+      } finally {
+        job.processed++;
       }
     }));
+
+    await saveNotificationJob(job);
+    await sleep(NOTIFY_BATCH_DELAY_MS);
   }
 
-  return ids.length;
+  job.status = "done";
+  job.finishedAt = Date.now();
+  await saveNotificationJob(job);
+
+  console.log(
+    `Notification job done: id=${job.id}, total=${job.total}, sent=${job.sent}, failed=${job.failed}, blocked=${job.blocked}, skipped=${job.skipped}`
+  );
 }
+
+function startNotificationJob(video, options = {}) {
+  const job = {
+    id: crypto.randomBytes(8).toString("hex"),
+    type: options.titleOnly ? "edit" : "new",
+    videoId: String(video.id || ""),
+    title: String(video.title || "").slice(0, 200),
+    status: "queued",
+    total: 0,
+    processed: 0,
+    sent: 0,
+    failed: 0,
+    blocked: 0,
+    otherFailed: 0,
+    skipped: 0,
+    errors: [],
+    error: "",
+    createdAt: Date.now(),
+    startedAt: 0,
+    finishedAt: 0
+  };
+
+  notificationJobs.set(job.id, job);
+
+  if (notificationJobs.size > MAX_JOBS_IN_MEMORY) {
+    const oldest = [...notificationJobs.values()]
+      .sort((a, b) => a.createdAt - b.createdAt)[0];
+
+    if (oldest && oldest.id !== job.id) notificationJobs.delete(oldest.id);
+  }
+
+  saveNotificationJob(job);
+
+  // Jobs run one after another in the background
+  notificationQueue = notificationQueue
+    .then(() => runNotificationJob(job, video, options))
+    .catch(async error => {
+      console.error("Notification job failed:", error.message);
+
+      job.status = "failed";
+      job.error = String(error.message).slice(0, 300);
+      job.finishedAt = Date.now();
+
+      await saveNotificationJob(job);
+    });
+
+  return job;
+}
+
+async function markInterruptedNotificationJobs() {
+  if (!firebaseReady) return;
+
+  try {
+    const snap = await db.ref("notificationJobs")
+      .orderByChild("createdAt")
+      .limitToLast(50)
+      .once("value");
+
+    const updates = {};
+
+    snap.forEach(child => {
+      const job = child.val() || {};
+
+      if (job.status === "running" || job.status === "queued") {
+        updates[`${child.key}/status`] = "interrupted";
+        updates[`${child.key}/finishedAt`] = Date.now();
+      }
+    });
+
+    if (Object.keys(updates).length) {
+      await db.ref("notificationJobs").update(updates);
+    }
+  } catch (error) {
+    console.error("Notification job cleanup error:", error.message);
+  }
+}
+
+/* Admin: notification status */
+
+app.get(
+  "/api/admin/notifications",
+  requireFirebase,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      let jobs = [...notificationJobs.values()];
+
+      if (!jobs.length) {
+        const snap = await db.ref("notificationJobs")
+          .orderByChild("createdAt")
+          .limitToLast(20)
+          .once("value");
+
+        snap.forEach(child => {
+          jobs.push(child.val());
+        });
+      }
+
+      jobs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+      res.json({ success: true, jobs: jobs.slice(0, 20) });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+);
+
+app.get(
+  "/api/admin/notifications/:id",
+  requireFirebase,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      let job = notificationJobs.get(req.params.id);
+
+      if (!job) {
+        const snap = await db
+          .ref(`notificationJobs/${req.params.id}`)
+          .once("value");
+
+        job = snap.val();
+      }
+
+      if (!job) {
+        return res.status(404).json({
+          success: false,
+          error: "Notification job not found"
+        });
+      }
+
+      res.json({ success: true, job });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+);
 
 /* Admin add video */
 
@@ -2304,13 +2517,15 @@ app.post(
 
       await videoRef.set(video);
 
-      let notifiedUsers = 0;
+      let notificationJobId = "";
 
       try {
-        notifiedUsers = await notifyAllUsers({
+        const job = startNotificationJob({
           id: videoRef.key,
           ...video
         });
+
+        notificationJobId = job.id;
       } catch (error) {
         console.error("Notification error:", error.message);
       }
@@ -2318,8 +2533,10 @@ app.post(
       res.json({
         success: true,
         videoId: videoRef.key,
-        notifiedUsers,
-        message: "Video added"
+        notifiedUsers: 0,
+        notificationJobId,
+        notificationStatus: notificationJobId ? "started" : "not_started",
+        message: "Video added. Notifications are sending in the background."
       });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -2383,17 +2600,19 @@ app.put(
       await ref.update(updates);
 
       // Notify users again after an edit: same title + thumbnail, no extra text
-      let notifiedUsers = 0;
+      let notificationJobId = "";
 
       try {
         const latestSnap = await ref.once("value");
         const latest = latestSnap.val() || {};
 
         if (latest.enabled !== false) {
-          notifiedUsers = await notifyAllUsers(
+          const job = startNotificationJob(
             { id: req.params.id, ...latest },
             { titleOnly: true }
           );
+
+          notificationJobId = job.id;
         }
       } catch (error) {
         console.error("Edit notification error:", error.message);
@@ -2401,7 +2620,9 @@ app.put(
 
       res.json({
         success: true,
-        notifiedUsers,
+        notifiedUsers: 0,
+        notificationJobId,
+        notificationStatus: notificationJobId ? "started" : "not_started",
         message: "Video updated"
       });
     } catch (error) {
@@ -2494,6 +2715,10 @@ app.listen(PORT, () => {
   setTimeout(() => {
     startTelegramPolling();
   }, 2000);
+
+  setTimeout(() => {
+    markInterruptedNotificationJobs();
+  }, 1000);
 
   setTimeout(() => {
     recoverPendingReferralClaims();
