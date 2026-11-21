@@ -2412,22 +2412,115 @@ app.get(
   requireAdmin,
   async (req, res) => {
     try {
-      let jobs = [...notificationJobs.values()];
+      const merged = new Map();
 
-      if (!jobs.length) {
-        const snap = await db.ref("notificationJobs")
-          .orderByChild("createdAt")
-          .limitToLast(20)
-          .once("value");
+      const snap = await db.ref("notificationJobs")
+        .orderByChild("createdAt")
+        .limitToLast(20)
+        .once("value");
 
-        snap.forEach(child => {
-          jobs.push(child.val());
+      snap.forEach(child => {
+        const job = child.val();
+        if (job && job.id) merged.set(job.id, job);
+      });
+
+      // Live in-memory jobs are newer than the saved copy
+      for (const [id, job] of notificationJobs) {
+        merged.set(id, job);
+      }
+
+      const jobs = [...merged.values()]
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+      res.json({ success: true, jobs: jobs.slice(0, 20) });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+);
+
+function isActiveNotificationJob(job) {
+  return job && (job.status === "running" || job.status === "queued");
+}
+
+/* Admin: delete one finished notification record */
+
+app.delete(
+  "/api/admin/notifications/:id",
+  requireFirebase,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const id = String(req.params.id || "");
+
+      if (!/^[a-f0-9]{16}$/.test(id)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid notification ID"
         });
       }
 
-      jobs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      let job = notificationJobs.get(id);
 
-      res.json({ success: true, jobs: jobs.slice(0, 20) });
+      if (!job) {
+        const snap = await db.ref(`notificationJobs/${id}`).once("value");
+        job = snap.val();
+      }
+
+      if (!job) {
+        return res.status(404).json({
+          success: false,
+          error: "Notification job not found"
+        });
+      }
+
+      if (isActiveNotificationJob(job)) {
+        return res.status(409).json({
+          success: false,
+          error: "This notification is still being sent"
+        });
+      }
+
+      notificationJobs.delete(id);
+      await db.ref(`notificationJobs/${id}`).remove();
+
+      res.json({ success: true, message: "Notification record deleted" });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+);
+
+/* Admin: clear all finished notification records */
+
+app.delete(
+  "/api/admin/notifications",
+  requireFirebase,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const snap = await db.ref("notificationJobs").once("value");
+      const updates = {};
+      let deleted = 0;
+
+      snap.forEach(child => {
+        const job = notificationJobs.get(child.key) || child.val() || {};
+
+        if (!isActiveNotificationJob(job)) {
+          updates[child.key] = null;
+          deleted++;
+        }
+      });
+
+      if (deleted) {
+        await db.ref("notificationJobs").update(updates);
+      }
+
+      for (const [id, job] of notificationJobs) {
+        if (!isActiveNotificationJob(job)) notificationJobs.delete(id);
+      }
+
+      res.json({ success: true, deleted });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }
