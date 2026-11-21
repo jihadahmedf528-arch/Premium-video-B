@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -40,6 +39,23 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 .note{font-size:12px;color:#aaa;line-height:1.6;margin-top:-5px;margin-bottom:12px}
 .setting-group{background:#100e0e;border:1px solid #382626;border-radius:10px;padding:13px;margin:12px 0}
 .setting-group h4{margin:0 0 12px;font-size:14px;color:#ffad78}
+
+/* Notification status */
+.njob{background:#100e0e;border:1px solid #382626;border-radius:10px;padding:13px;margin-bottom:12px}
+.njob-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.njob-title{font-size:14px;font-weight:bold;overflow-wrap:anywhere}
+.njob-meta{color:#a9a0a0;font-size:11px;margin-top:4px}
+.nbadge{font-size:11px;padding:4px 9px;border-radius:6px;font-weight:bold;white-space:nowrap}
+.nb-running{background:#3b2a10;color:#ffd36b}
+.nb-queued{background:#2a2a2a;color:#ccc}
+.nb-done{background:#17301f;color:#7fe0a0}
+.nb-failed,.nb-interrupted{background:#3b1717;color:#ff8a8a}
+.nbar{height:8px;background:#473025;border-radius:20px;overflow:hidden;margin:12px 0 6px}
+.nbar div{height:100%;width:0;background:linear-gradient(90deg,#ff303d,#ff8a24);transition:width .3s}
+.nstats{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;margin-top:10px}
+.nstats div{background:#171313;border:1px solid #2a1c1c;border-radius:8px;padding:9px}
+.nerr{margin-top:10px;font-size:11px;color:#ff9b9b;line-height:1.6;overflow-wrap:anywhere}
+
 @media(max-width:500px){.video{flex-wrap:wrap}.video-actions{width:100%}}
 </style>
 </head>
@@ -102,7 +118,7 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 <label>Unlock Section Message</label>
 <textarea id="unlockMessage" maxlength="500" placeholder="Write an attractive message for users..."></textarea>
 
-<p class="note">শুধু Special Reward বাটন থেকে দেখা Reward বিজ্ঞাপন এখানে গণনা হবে। Automatic বিজ্ঞাপন এবং ভিডিও Unlock-এর বিজ্ঞাপন এই Reward-এ যোগ হবে না। এই Reward-এর আগের নিয়ম অপরিবর্তিত থাকবে।</p>
+<p class="note">শুধু Special Reward বাটন থেকে দেখা Reward বিজ্ঞাপন এখানে গণনা হবে। Automatic বিজ্ঞাপন এবং ভিডিও Unlock-এর বিজ্ঞাপন এই Reward-এ যোগ হবে না। এই Reward-এর আগের নিয়ম অপরিবর্তিত থাকবে।</p>
 
 <hr>
 
@@ -121,12 +137,12 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 <input id="referralTitle" maxlength="150" placeholder="🎁 Referral Program">
 
 <label>Referral Panel Message</label>
-<textarea id="referralMessage" maxlength="2000" placeholder="বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো..."></textarea>
+<textarea id="referralMessage" maxlength="2000" placeholder="বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো..."></textarea>
 
 <label>Referral Instructions</label>
-<textarea id="referralInstructions" maxlength="2000" placeholder="১. Referral Link কপি করো।&#10;২. বন্ধুদের সঙ্গে শেয়ার করো।&#10;৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।"></textarea>
+<textarea id="referralInstructions" maxlength="2000" placeholder="১. Referral Link কপি করো।&#10;২. বন্ধুদের সঙ্গে শেয়ার করো।&#10;৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।"></textarea>
 
-<p class="note">নতুন ব্যবহারকারী Referral Link দিয়ে প্রথমবার Bot Start করলে Referrer Credit পাবে। একই ব্যবহারকারীর জন্য একবারের বেশি Reward দেওয়া হবে না। নিজের Referral Link দিয়ে নিজেকে Referral করা যাবে না।</p>
+<p class="note">নতুন ব্যবহারকারী Referral Link দিয়ে প্রথমবার Bot Start করলে Referrer Credit পাবে। একই ব্যবহারকারীর জন্য একবারের বেশি Reward দেওয়া হবে না। নিজের Referral Link দিয়ে নিজেকে Referral করা যাবে না।</p>
 
 <hr>
 
@@ -136,9 +152,9 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 <input value="Monetag" disabled>
 
 <label>Monetag Zone ID</label>
-<input id="monetagZoneId" value="12187766" readonly>
+<input id="monetagZoneId" value="11846657" readonly>
 
-<p class="note">Monetag Zone ID: 12187766</p>
+<p class="note">Monetag Zone ID: 11846657</p>
 
 <div class="setting-group">
 <h4>1️⃣ In-App Interstitial</h4>
@@ -176,7 +192,7 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 <label>Default Ads Required Per Video</label>
 <input id="defaultAds" type="number" min="1" max="100" value="2">
 
-<p class="note">ভিডিও Unlock করার সময় নির্ধারিত সংখ্যক Rewarded Interstitial বিজ্ঞাপন দেখানো হবে। আগের ১০ সেকেন্ডের Countdown শেষ হলে বিজ্ঞাপন গণনার নিয়ম থাকবে। প্রতিটি ভিডিওর আলাদা Ads Required সেটিংস থাকলে সেটিই কার্যকর হবে।</p>
+<p class="note">ভিডিও Unlock করার সময় নির্ধারিত সংখ্যক Rewarded Interstitial বিজ্ঞাপন দেখানো হবে। ইউজার প্রতিবার Watch Ads চেপে একটি করে বিজ্ঞাপন দেখবে, এবং প্রতিটি বিজ্ঞাপনের ৫ সেকেন্ডের Countdown শেষ হলে বিজ্ঞাপন গণনা হবে। প্রতিটি ভিডিওর আলাদা Ads Required সেটিংস থাকলে সেটিই কার্যকর হবে।</p>
 </div>
 
 <div class="setting-group">
@@ -206,7 +222,7 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 <option value="false">Disabled</option>
 </select>
 
-<p class="note">Referral বাটনে ক্লিক করলে Popup আগে আসবে, এরপর Referral Page খুলবে। Video Unlock বাটনে ক্লিক করলে Popup আগে আসবে, এরপর আগের Video Unlock প্রক্রিয়া চলবে। Popup নিজে থেকে কোনো Credit, Video Unlock বা Special Reward দেবে না।</p>
+<p class="note">Referral বাটনে ক্লিক করলে Popup আগে আসবে, এরপর Referral Page খুলবে। Video Unlock-এ Popup প্রতি দ্বিতীয় বিজ্ঞাপনে আসবে (১ম বারে নয়, ২য় বারে হ্যাঁ, ৩য় বারে নয়, ৪র্থ বারে হ্যাঁ, এভাবে চলবে)। Popup নিজে থেকে কোনো Credit, Video Unlock বা Special Reward দেবে না।</p>
 </div>
 
 <button onclick="saveSettings()">Save All Settings</button>
@@ -265,6 +281,15 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 <div id="videoList" class="muted" style="margin-top:15px">Loading...</div>
 </div>
 
+<div class="panel" id="notificationPanel">
+<div class="row" style="align-items:center">
+<h3 style="margin:0">🔔 Notification Status</h3>
+<button class="secondary" onclick="loadNotifications()">Refresh</button>
+</div>
+<p class="note" style="margin-top:10px">ভিডিও যোগ বা এডিট করলে নোটিফিকেশন ব্যাকগ্রাউন্ডে যায়। এখানে দেখা যাবে কতজনকে পাঠানো হলো আর কতজনকে হলো না।</p>
+<div id="notificationList" class="muted">Loading...</div>
+</div>
+
 <div class="panel">
 <h3>📣 Broadcast Message</h3>
 <label>Message or Link</label>
@@ -280,6 +305,7 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 <script>
 const API = "";
 let key = sessionStorage.getItem("pv_admin_key") || "";
+let notificationTimer = null;
 
 function populateVideoCategories(categories, selectedValue="") {
  const select = document.getElementById("videoCategory");
@@ -363,7 +389,7 @@ async function login(){
 
 async function loadAll(){
  try{
-  await Promise.all([loadDashboard(),loadSettings(),loadVideos()]);
+  await Promise.all([loadDashboard(),loadSettings(),loadVideos(),loadNotifications()]);
  }catch(e){
   document.getElementById("status").textContent=e.message;
  }
@@ -396,10 +422,10 @@ async function loadSettings(){
  document.getElementById("referralReward").value=s.referral?.rewardPerReferral??1;
  document.getElementById("referralEnabled").value=String(s.referral?.enabled!==false);
  document.getElementById("referralTitle").value=s.referral?.title||"🎁 Referral Program";
- document.getElementById("referralMessage").value=s.referral?.message||"বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো। তারা তোমার লিংক দিয়ে প্রথমবার Start করলেই তুমি Credit পাবে।";
- document.getElementById("referralInstructions").value=s.referral?.instructions||"১. Referral Link কপি করো।\n২. বন্ধুদের সঙ্গে শেয়ার করো।\n৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।";
+ document.getElementById("referralMessage").value=s.referral?.message||"বন্ধুদের সঙ্গে তোমার Referral Link শেয়ার করো। তারা তোমার লিংক দিয়ে প্রথমবার Start করলেই তুমি Credit পাবে।";
+ document.getElementById("referralInstructions").value=s.referral?.instructions||"১. Referral Link কপি করো।\n২. বন্ধুদের সঙ্গে শেয়ার করো।\n৩. তারা লিংক দিয়ে Start করলেই Credit যোগ হবে।";
 
- document.getElementById("monetagZoneId").value="12187766";
+ document.getElementById("monetagZoneId").value="11846657";
 
  document.getElementById("automaticAdsEnabled").value=String(ads.automaticAdsEnabled!==false);
  document.getElementById("autoFirstAdSeconds").value=ads.autoFirstAdSeconds??30;
@@ -454,7 +480,7 @@ async function saveSettings(){
  if(!Number.isInteger(interval)||interval<10||interval>3600){
   alert("Ad interval must be between 10 and 3600 seconds");return;
  }
- if(!Number.isInteger(frequency)||frequency<1||frequency>100){
+ if(!Number.isInteger(frequency)||frequency<1||frequency>20){
   alert("Frequency must be between 1 and 20");return;
  }
  if(!Number.isInteger(capping)||capping<1||capping>24){
@@ -510,7 +536,7 @@ async function saveSettings(){
 
     ads:{
      network:"monetag",
-     monetagZoneId:"12187766",
+     monetagZoneId:"11846657",
 
      automaticAdsEnabled:document.getElementById("automaticAdsEnabled").value==="true",
      autoFirstAdSeconds:firstDelay,
@@ -676,7 +702,7 @@ async function saveVideo(){
  }
 
  try{
-  await api(
+  const result=await api(
    id?"/api/admin/videos/"+encodeURIComponent(id):"/api/admin/videos",
    {
     method:id?"PUT":"POST",
@@ -684,10 +710,15 @@ async function saveVideo(){
    }
   );
 
-  document.getElementById("videoStatus").textContent="Video saved successfully!";
+  document.getElementById("videoStatus").textContent=
+   result.notificationStatus==="started"
+    ?"Video saved successfully! নোটিফিকেশন ব্যাকগ্রাউন্ডে পাঠানো হচ্ছে — নিচে Notification Status দেখো।"
+    :"Video saved successfully!";
+
   clearVideo();
   await loadVideos();
   await loadDashboard();
+  loadNotifications();
  }catch(e){
   document.getElementById("videoStatus").textContent=e.message;
  }
@@ -702,6 +733,107 @@ async function deleteVideo(id){
   await loadDashboard();
  }catch(e){
   alert(e.message);
+ }
+}
+
+/* Notification status */
+
+const NOTIFICATION_STATUS={
+ queued:"অপেক্ষায়",
+ running:"চলছে",
+ done:"সম্পন্ন",
+ failed:"ব্যর্থ",
+ interrupted:"মাঝপথে বন্ধ"
+};
+
+function formatTime(ts){
+ return ts?new Date(ts).toLocaleString("bn-BD"):"-";
+}
+
+function makeEl(tag,cls,text){
+ const e=document.createElement(tag);
+ if(cls) e.className=cls;
+ if(text!==undefined) e.textContent=text;
+ return e;
+}
+
+function makeStat(label,value){
+ const d=makeEl("div");
+ d.append(label+": ",makeEl("b",null,String(value)));
+ return d;
+}
+
+function renderNotifications(jobs){
+ const box=document.getElementById("notificationList");
+ box.innerHTML="";
+
+ if(!jobs.length){
+  box.textContent="এখনো কোনো নোটিফিকেশন পাঠানো হয়নি।";
+  return;
+ }
+
+ jobs.forEach(job=>{
+  const card=makeEl("div","njob");
+
+  const top=makeEl("div","njob-top");
+  const left=makeEl("div");
+  left.appendChild(makeEl("div","njob-title",job.title||"(No title)"));
+  left.appendChild(makeEl("div","njob-meta",
+   (job.type==="edit"?"এডিট নোটিফিকেশন":"নতুন ভিডিও")+" • "+formatTime(job.createdAt)));
+  top.appendChild(left);
+  top.appendChild(makeEl("span","nbadge nb-"+job.status,NOTIFICATION_STATUS[job.status]||job.status));
+  card.appendChild(top);
+
+  const total=Number(job.total)||0;
+  const processed=Number(job.processed)||0;
+  const percent=total?Math.min(100,Math.floor(processed/total*100)):(job.status==="done"?100:0);
+
+  const bar=makeEl("div","nbar");
+  const fill=makeEl("div");
+  fill.style.width=percent+"%";
+  bar.appendChild(fill);
+  card.appendChild(bar);
+  card.appendChild(makeEl("div","njob-meta",processed+" / "+total+" ("+percent+"%)"));
+
+  const stats=makeEl("div","nstats");
+  stats.append(
+   makeStat("✅ পাঠানো হয়েছে",job.sent||0),
+   makeStat("❌ ব্যর্থ",job.failed||0),
+   makeStat("🚫 বট ব্লক করেছে",job.blocked||0),
+   makeStat("⚠️ অন্য কারণে ব্যর্থ",job.otherFailed||0),
+   makeStat("⏭ আগে থেকেই ব্লক (বাদ)",job.skipped||0),
+   makeStat("🕒 শেষ হয়েছে",formatTime(job.finishedAt))
+  );
+  card.appendChild(stats);
+
+  const errs=(job.errors||[]).filter(Boolean);
+  if(job.error) errs.unshift(job.error);
+  if(errs.length){
+   card.appendChild(makeEl("div","nerr","কারণ: "+errs.join(" | ")));
+  }
+
+  box.appendChild(card);
+ });
+}
+
+async function loadNotifications(){
+ const box=document.getElementById("notificationList");
+
+ if(notificationTimer){
+  clearTimeout(notificationTimer);
+  notificationTimer=null;
+ }
+
+ try{
+  const d=await api("/api/admin/notifications");
+  const jobs=d.jobs||[];
+  renderNotifications(jobs);
+
+  // Only auto-refresh while a notification is still being sent
+  const active=jobs.some(j=>j.status==="running"||j.status==="queued");
+  if(active) notificationTimer=setTimeout(loadNotifications,3000);
+ }catch(e){
+  box.textContent=e.message;
  }
 }
 
