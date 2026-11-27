@@ -82,6 +82,8 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 
 <div class="grid">
  <div class="stat">Total Users<strong id="totalUsers">0</strong></div>
+ <div class="stat">Active Users<strong id="activeUsers">0</strong></div>
+ <div class="stat">Blocked Bot Users<strong id="blockedUsers">0</strong></div>
  <div class="stat">Total Videos<strong id="totalVideos">0</strong></div>
  <div class="stat">Total Referrals<strong id="totalReferrals">0</strong></div>
  <div class="stat">User Credits<strong id="totalCredits">0</strong></div>
@@ -293,6 +295,15 @@ hr{border:0;border-top:1px solid #382626;margin:18px 0}
 </div>
 
 <div class="panel">
+<h3>🧹 Blocked Users Cleanup</h3>
+<p class="note" style="margin-top:0">যারা বট ব্লক করেছে তাদের সংখ্যা এখন: <b id="blockedCount">0</b></p>
+<p class="note">এই বাটন চাপলে ওই সব ইউজারের সম্পূর্ণ ডাটা (ক্রেডিট, রেফারেল, প্রগ্রেস সহ) Firebase থেকে মুছে যাবে। তারা আবার বট Start করলে একদম নতুন ইউজারের মতো স্বাগতম পাবে। যার রেফারেল লিংক দিয়ে ঢুকবে, সে আবার নির্ধারিত ক্রেডিট পাবে। মোছা ডাটা ফেরত আনা যায় না।</p>
+<p class="note">কে বট ব্লক করেছে তা জানা যায় নোটিফিকেশন বা Broadcast পাঠানোর সময়। তাই আগে একটা নোটিফিকেশন বা Broadcast পাঠিয়ে নাও, তারপর এখানে এসে মুছো।</p>
+<button class="danger" onclick="deleteBlockedUsers()">🗑 Delete Blocked Users' Data</button>
+<div id="cleanupStatus" style="font-size:13px;margin-top:10px;color:#ffb47c"></div>
+</div>
+
+<div class="panel">
 <h3>📣 Broadcast Message</h3>
 <label>Message or Link</label>
 <textarea id="broadcastMessage" placeholder="Write a message for all bot users..."></textarea>
@@ -400,6 +411,9 @@ async function loadAll(){
 async function loadDashboard(){
  const d=await api("/api/admin/dashboard");
  document.getElementById("totalUsers").textContent=d.totalUsers||0;
+ document.getElementById("blockedUsers").textContent=d.blockedUsers||0;
+ document.getElementById("activeUsers").textContent=Math.max(0,(d.totalUsers||0)-(d.blockedUsers||0));
+ document.getElementById("blockedCount").textContent=d.blockedUsers||0;
  document.getElementById("totalVideos").textContent=d.totalVideos||0;
  document.getElementById("totalReferrals").textContent=d.totalReferrals||0;
  document.getElementById("totalCredits").textContent=d.totalCredits||0;
@@ -881,6 +895,28 @@ async function loadNotifications(){
   // Only auto-refresh while a notification is still being sent
   const active=jobs.some(j=>j.status==="running"||j.status==="queued");
   if(active) notificationTimer=setTimeout(loadNotifications,3000);
+ }catch(e){
+  box.textContent=e.message;
+ }
+}
+
+async function deleteBlockedUsers(){
+ const box=document.getElementById("cleanupStatus");
+ const count=Number(document.getElementById("blockedCount").textContent)||0;
+
+ if(!count){
+  alert("এখন কোনো ব্লক করা ইউজার নেই।");
+  return;
+ }
+
+ if(!confirm(count+" জন ব্লক করা ইউজারের সব ডাটা মুছে যাবে। এটা ফেরত আনা যাবে না। নিশ্চিত?")) return;
+
+ box.textContent="মুছে ফেলা হচ্ছে...";
+
+ try{
+  const d=await api("/api/admin/users/blocked",{method:"DELETE"});
+  box.textContent=(d.deleted||0)+" জন ইউজারের ডাটা মুছে ফেলা হয়েছে।";
+  await loadDashboard();
  }catch(e){
   box.textContent=e.message;
  }
