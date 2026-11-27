@@ -1800,16 +1800,19 @@ app.get(
 
       let totalReferrals = 0;
       let totalCredits = 0;
+      let blockedUsers = 0;
 
       users.forEach(child => {
         const user = child.val() || {};
         totalReferrals += Number(user.totalReferrals) || 0;
         totalCredits += Number(user.credits) || 0;
+        if (user.blocked === true) blockedUsers++;
       });
 
       res.json({
         success: true,
         totalUsers: users.numChildren(),
+        blockedUsers,
         totalVideos: videos.numChildren(),
         totalReferrals,
         totalCredits
@@ -2741,6 +2744,113 @@ app.delete(
   }
 );
 
+/* Admin: delete all data of users who blocked the bot */
+
+app.delete(
+  "/api/admin/users/blocked",
+  requireFirebase,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const usersSnap = await db.ref("users").once("value");
+      const users = usersSnap.val() || {};
+
+      const blockedIds = Object.keys(users).filter(
+        id => users[id] && users[id].blocked === true
+      );
+
+      if (!blockedIds.length) {
+        return res.json({ success: true, deleted: 0 });
+      }
+
+      const blockedSet = new Set(blockedIds);
+
+      // 1) Remove the old referral record from each referrer, so the
+      //    referrer is rewarded again when the user comes back via the link
+      const byReferrer = new Map();
+
+      for (const id of blockedIds) {
+        const referrerId = String(users[id].referredBy || "");
+
+        if (!referrerId || blockedSet.has(referrerId) || !users[referrerId]) {
+          continue;
+        }
+
+        if (!byReferrer.has(referrerId)) byReferrer.set(referrerId, []);
+        byReferrer.get(referrerId).push(id);
+      }
+
+      for (const [referrerId, ids] of byReferrer) {
+        await db.ref(`users/${referrerId}`).transaction(current => {
+          if (current === null) return current;
+          if (!current.referrals) return current;
+
+          let removed = 0;
+
+          for (const id of ids) {
+            if (current.referrals[id]) {
+              delete current.referrals[id];
+              removed++;
+            }
+          }
+
+          if (removed) {
+            current.totalReferrals = Math.max(
+              0,
+              (Number(current.totalReferrals) || 0) - removed
+            );
+
+            if (!Object.keys(current.referrals).length) {
+              delete current.referrals;
+            }
+          }
+
+          return current;
+        });
+      }
+
+      // 2) Remove pending referral claims whose referrer is being deleted
+      const claimsSnap = await db.ref("referralClaims").once("value");
+      const claims = claimsSnap.val() || {};
+      const claimUpdates = {};
+
+      for (const [newUserId, claim] of Object.entries(claims)) {
+        if (
+          claim &&
+          claim.status === "pending" &&
+          blockedSet.has(String(claim.referrerId))
+        ) {
+          claimUpdates[newUserId] = null;
+        }
+      }
+
+      if (Object.keys(claimUpdates).length) {
+        await db.ref("referralClaims").update(claimUpdates);
+      }
+
+      // 3) Delete the users and their related records everywhere
+      for (let i = 0; i < blockedIds.length; i += 100) {
+        const chunk = blockedIds.slice(i, i + 100);
+        const updates = {};
+
+        chunk.forEach(id => {
+          updates[`users/${id}`] = null;
+          updates[`referralClaims/${id}`] = null;
+          updates[`videoAdSessions/${id}`] = null;
+        });
+
+        await db.ref().update(updates);
+      }
+
+      console.log(`Blocked users deleted: ${blockedIds.length}`);
+
+      res.json({ success: true, deleted: blockedIds.length });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+);
+
 /* Admin broadcast */
 
 app.post(
@@ -2776,9 +2886,18 @@ app.post(
           }))
         );
 
-        results.forEach(result => {
-          if (result.status === "fulfilled") sent++;
-          else failed++;
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            sent++;
+          } else {
+            failed++;
+
+            if (isBlockedError(result.reason && result.reason.message)) {
+              db.ref(`users/${batch[index]}`)
+                .update({ blocked: true })
+                .catch(() => {});
+            }
+          }
         });
       }
 
